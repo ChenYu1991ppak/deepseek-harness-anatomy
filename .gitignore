@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# IDE 本地数据
+.codebuddy/
+.history/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
