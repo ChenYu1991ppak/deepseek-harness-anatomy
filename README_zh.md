@@ -4,6 +4,45 @@
 
 > 一套递进式源码学习文档：用 17 个章节把 dsh 从「一条消息如何变成一条回复」的最小闭环，逐章加厚到「多 agent 委派 + 上下文压缩 + 人类协作 + 跨进程 RPC」的完整端到端形态。
 
+## 快速开始（3 分钟）
+
+```bash
+git clone https://github.com/ChenYu1991ppak/deepseek-harness-anatomy.git
+cd deepseek-harness-anatomy
+python3 ch02/code/main.py
+```
+
+无依赖、无需 API key，仅 Python 3 标准库。你会看到一轮完整的「一条消息进，一条回复出」：
+
+![ch02 运行演示](assets/demo-ch02.svg)
+
+然后打开[第 2 章](ch02/ch02-agent-loop_zh.md)，沿下面的路线图逐章加厚：
+
+```mermaid
+flowchart LR
+  subgraph S1["打地基"]
+    direction LR
+    C01["1 · Cordis 内核"] --> C02["2 · 最小 agent-loop"] --> C03["3 · session 持久化"]
+  end
+  subgraph S2["能力加厚"]
+    direction LR
+    C04["4 · tools 管线"] --> C05["5 · capability seam"] --> C06["6 · 执行世界"] --> C07["7 · LLM 适配"] --> C08["8 · system-prompt"]
+  end
+  subgraph S3["进阶机制"]
+    direction LR
+    C09["9 · scope"] --> C10["10 · 上下文压缩"] --> C11["11 · subagent"] --> C12["12 · skill"]
+  end
+  subgraph S4["治理与组合"]
+    direction LR
+    C13["13 · web 与 lsp"] --> C14["14 · 交互与权限"] --> C15["15 · preset / bundle"]
+  end
+  subgraph S5["端到端"]
+    direction LR
+    C16["16 · 跨进程 RPC"] --> C17["17 · workflow 端到端"]
+  end
+  S1 --> S2 --> S3 --> S4 --> S5
+```
+
 ## 这个教程是什么
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（命令 `dsh`）是 DeepSeek AI 开源的 **agent harness**——模型之外的那一整层工程骨架：会话日志、工具执行、上下文压缩、子代理委派、权限守卫、持久化……核心理念是**「一切皆插件」**，底层由 vendored 的 Cordis 框架驱动。
@@ -76,7 +115,7 @@ flowchart TB
 
 1. **先读地图**：[ch00/outline_zh.md](ch00/outline_zh.md) 看 17 章递进脉络与术语命名表，建立全局心智模型。
 2. **按编号逐章读**：`ch01` → `ch17` 严格递进——每一章开头承接前一章新增的机制，结尾预告下一章，跨章依赖用「详见第 X 章」标注。不建议跳读。
-3. **边读边跑**：每章教学代码位于 `chNN/code/`，`python3 chNN/code/main.py` 可直接运行；先复现章末「完整运行输出」，再读机制拆解。
+3. **边读边跑**：每章教学代码位于 `chNN/code/`（`ch02`–`ch17` 以 `main.py` 为入口，`ch01` 为 `hello.py`），`python3 chNN/code/main.py` 可直接运行；先复现章末「完整运行输出」，再读机制拆解。
 
 ## 配套文件说明
 

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="600" viewBox="0 0 920 600">
+  <defs>
+    <style>
+      .t { font-family: 'SF Mono', 'Cascadia Code', Consolas, 'Courier New', monospace; font-size: 14px; }
+      .prompt { fill: #a6e3a1; }
+      .cmd { fill: #f8f8f2; }
+      .section { fill: #89b4fa; font-weight: bold; }
+      .dim { fill: #9399b2; }
+      .event { fill: #cdd6f4; }
+      .ok { fill: #a6e3a1; }
+      .key { fill: #f9e2af; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="920" height="600" rx="12" fill="#1e1e2e"/>
+  <rect x="0" y="0" width="920" height="40" rx="12" fill="#313244"/>
+  <rect x="0" y="28" width="920" height="12" fill="#313244"/>
+  <circle cx="24" cy="20" r="7" fill="#f38ba8"/>
+  <circle cx="48" cy="20" r="7" fill="#f9e2af"/>
+  <circle cx="72" cy="20" r="7" fill="#a6e3a1"/>
+  <text x="460" y="25" text-anchor="middle" class="t dim">deepseek-harness-anatomy — ch02 minimal agent-loop</text>
+
+  <text x="24" y="76" class="t prompt">$ <tspan class="cmd">python3 ch02/code/main.py</tspan></text>
+
+  <text x="24" y="112" class="t section">== 1. 建容器 ==</text>
+  <text x="24" y="136" class="t section">== 2. provide sessions + llm ==</text>
+  <text x="48" y="160" class="t dim">ctx.sessions -&gt; Sessions</text>
+  <text x="48" y="184" class="t dim">ctx.llm      -&gt; LlmStub</text>
+
+  <text x="24" y="220" class="t section">== 4. plugin 加载 AgentLoop（inject 满足才加载） ==</text>
+  <text x="48" y="244" class="t event">AgentLoop inject=['sessions', 'llm'] -&gt; <tspan class="ok">state=active</tspan></text>
+
+  <text x="24" y="280" class="t section">== 6. followup 跑一轮闭环 ==</text>
+  <text x="48" y="304" class="t dim">[agent/session-start] session-0001</text>
+  <text x="48" y="328" class="t event">[event] seq=0 turn/start</text>
+  <text x="48" y="352" class="t event">[event] seq=2 user/message</text>
+  <text x="48" y="376" class="t event">[event] seq=3 assistant/chunk</text>
+  <text x="48" y="400" class="t event">[event] seq=4 assistant/chunk</text>
+  <text x="48" y="424" class="t event">[event] seq=5 assistant/chunk</text>
+  <text x="48" y="448" class="t event">[event] seq=6 assistant/message</text>
+  <text x="48" y="472" class="t event">[event] seq=8 turn/end</text>
+
+  <text x="48" y="508" class="t dim">[seq=2] user/message: <tspan class="key">{'role': 'user', 'content': '什么是 Cordis？'}</tspan></text>
+  <text x="48" y="532" class="t dim">[seq=6] assistant/message: '收到问题「什么是 Cordis？」。这是一个最小闭环：…'</text>
+
+  <text x="24" y="572" class="t ok">拼出的 assistant 消息: 收到问题「什么是 Cordis？」。chunk 逐条到达，拼成完整回复。</text>
+</svg>

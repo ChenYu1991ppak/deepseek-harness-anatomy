@@ -4,6 +4,45 @@
 
 > A progressive set of source-study documents: across 17 chapters, dsh is built up from the minimal closed loop of "how one message becomes one reply", chapter by chapter, into the complete end-to-end form of "multi-agent delegation + context compaction + human collaboration + cross-process RPC".
 
+## Quick Start (3 minutes)
+
+```bash
+git clone https://github.com/ChenYu1991ppak/deepseek-harness-anatomy.git
+cd deepseek-harness-anatomy
+python3 ch02/code/main.py
+```
+
+No dependencies, no API keys — Python 3 standard library only. You'll see one full turn of "a question in, a reply out":
+
+![ch02 run demo](assets/demo-ch02.svg)
+
+Then open [Chapter 2](ch02/ch02-agent-loop_en.md) and thicken the loop chapter by chapter along the roadmap:
+
+```mermaid
+flowchart LR
+  subgraph S1["Foundation"]
+    direction LR
+    C01["1 · Cordis kernel"] --> C02["2 · minimal agent-loop"] --> C03["3 · session persistence"]
+  end
+  subgraph S2["Capability build-up"]
+    direction LR
+    C04["4 · tools pipeline"] --> C05["5 · capability seam"] --> C06["6 · execution world"] --> C07["7 · LLM adaptation"] --> C08["8 · system-prompt"]
+  end
+  subgraph S3["Advanced mechanisms"]
+    direction LR
+    C09["9 · scope"] --> C10["10 · compaction"] --> C11["11 · subagent"] --> C12["12 · skill"]
+  end
+  subgraph S4["Governance & composition"]
+    direction LR
+    C13["13 · web & lsp"] --> C14["14 · interaction & permission"] --> C15["15 · preset / bundle"]
+  end
+  subgraph S5["End-to-end"]
+    direction LR
+    C16["16 · cross-process RPC"] --> C17["17 · workflow e2e"]
+  end
+  S1 --> S2 --> S3 --> S4 --> S5
+```
+
 ## What This Tutorial Is
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (command `dsh`) is an **agent harness** open-sourced by DeepSeek AI — the entire engineering skeleton outside the model: session logging, tool execution, context compaction, subagent delegation, permission guards, persistence... Its core philosophy is **"everything is a plugin"**, driven underneath by the vendored Cordis framework.
@@ -76,7 +115,7 @@ Four core design philosophies run through the entire tutorial: **everything is a
 
 1. **Read the map first**: [ch00/outline_en.md](ch00/outline_en.md) shows the progressive arc of the 17 chapters and the terminology naming table — build the global mental model.
 2. **Read chapter by chapter in order**: `ch01` → `ch17`, strictly progressive — each chapter opens by picking up the mechanism added in the previous chapter and closes with a preview of the next; cross-chapter dependencies are marked "see Chapter X". Skipping chapters is not recommended.
-3. **Read and run**: each chapter's teaching code lives in `chNN/code/`, and `python3 chNN/code/main.py` runs directly; first reproduce the chapter-end "full run output", then read the mechanism breakdown.
+3. **Read and run**: each chapter's teaching code lives in `chNN/code/` (`ch02`–`ch17` enter via `main.py`; `ch01` via `hello.py`), and `python3 chNN/code/main.py` runs directly; first reproduce the chapter-end "full run output", then read the mechanism breakdown.
 
 ## Companion Files
 
