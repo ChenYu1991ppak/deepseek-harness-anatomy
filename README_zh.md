@@ -2,6 +2,8 @@
 
 > 语言：[中文](README_zh.md) | [English](README.md)
 
+**17 章渐进式拆解。每章只加一个机制。每章代码可直接运行。** 从「一条消息如何变成一条回复」的最小闭环，逐章加厚到多 agent 委派、上下文压缩、人类协作与跨进程 RPC 的完整端到端形态。
+
 > 一套递进式源码学习文档：用 17 个章节把 dsh 从「一条消息如何变成一条回复」的最小闭环，逐章加厚到「多 agent 委派 + 上下文压缩 + 人类协作 + 跨进程 RPC」的完整端到端形态。
 
 ## 快速开始（3 分钟）
@@ -17,6 +19,15 @@ python3 ch02/code/main.py
 ![ch02 运行演示](assets/demo-ch02.svg)
 
 然后打开[第 2 章](ch02/ch02-agent-loop_zh.md)，沿下面的路线图逐章加厚：
+
+![章节路线图](assets/anatomy-chapters.html)
+
+## 谁该读这个教程
+
+- **你在写自己的 agent 框架**，想参考 DeepSeek 的设计决策——seam 三角色、事件流持久化、Cordis 插件容器，逐机制拆解
+- **你看了 dsh 源码但没看懂**——这份教程提供 17 章递进地图，每章末尾附 `file:line` 源码对照表
+- **你是 Python 开发者**，不想啃 TypeScript 源码——每章附带仅用标准库的可运行 Python 教学代码
+- **你在教或写 agent 架构相关内容**——每章都是独立模块，附可运行 demo，可直接引用或改编
 
 ```mermaid
 flowchart LR

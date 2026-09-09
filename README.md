@@ -2,6 +2,8 @@
 
 > Language: [中文](README_zh.md) | [English](README.md)
 
+**17 chapters. One mechanism at a time. Every chapter runnable.** Deconstruct the DeepSeek Harness engineering skeleton — from the minimal agent loop "one message in, one reply out" all the way to multi-agent delegation, context compaction, human collaboration, and cross-process RPC.
+
 > A progressive set of source-study documents: across 17 chapters, dsh is built up from the minimal closed loop of "how one message becomes one reply", chapter by chapter, into the complete end-to-end form of "multi-agent delegation + context compaction + human collaboration + cross-process RPC".
 
 ## Quick Start (3 minutes)
@@ -17,6 +19,15 @@ No dependencies, no API keys — Python 3 standard library only. You'll see one 
 ![ch02 run demo](assets/demo-ch02.svg)
 
 Then open [Chapter 2](ch02/ch02-agent-loop_en.md) and thicken the loop chapter by chapter along the roadmap:
+
+![Chapter roadmap](assets/anatomy-chapters.html)
+
+## Who Should Read This
+
+- **You're building your own agent framework** and want to reference DeepSeek's design decisions — the seam triple-role, event-stream persistence, and Cordis plugin container are explained mechanism by mechanism
+- **You read the dsh source but couldn't get a grip** — this tutorial provides a 17-chapter progressive map with `file:line` source references
+- **You're a Python developer** who doesn't want to read TypeScript source — every chapter has runnable Python teaching code (standard library only)
+- **You teach or write about agent architecture** — each chapter is a self-contained module with runnable demos, ready to be cited or adapted
 
 ```mermaid
 flowchart LR
