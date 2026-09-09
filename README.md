@@ -134,3 +134,27 @@ Four core design philosophies run through the entire tutorial: **everything is a
 |---|---|
 | `ch00/` | The outline directory: `outline_en.md` is the progressive outline of the 17 chapters (topic / new mechanisms / source modules / prerequisite chapters) + the terminology naming table; `outline_zh.md` is the corresponding Chinese version |
 | `ch01/` … `ch17/` | One directory per chapter: `chNN-*_en.md` is the chapter's final body text (epigraph / questions this chapter answers / body / full run output / source mapping / summary & preview / appendix quick-reference table), `chNN-*_zh.md` is the corresponding Chinese version, and `code/` is the chapter's runnable Python teaching code (accumulated incrementally per chapter) |
+
+## Architecture Comparison
+
+### How dsh compares to other agent frameworks
+
+| Dimension | DeepSeek Harness (dsh) | LangChain | CrewAI | AutoGen |
+|---|---|---|---|---|
+| Philosophy | Everything is a plugin | Chain composition | Role-based agents | Multi-agent conversation |
+| Core container | Cordis (plugin kernel) | No kernel | No kernel | No kernel |
+| Seam/replaceability | Triple-role (def/provider/consumer) | Components | Limited | Limited |
+| Agent loop | Built-in react loop | Custom chains | Built-in | Built-in |
+| Context compaction | Built-in (threshold-triggered) | External | External | External |
+| Session persistence | Append-only event log + projections | Manual | Limited | Limited |
+| Token metering | Real provider-returned usage | Estimates | Estimates | Estimates |
+| Plugin isolation | Scoped layers (per-agent) | No | No | No |
+| Cross-process RPC | Built-in (Ralph/ACP) | No | No | No |
+| Learning curve | Steep (full-featured) | High (many abstractions) | Medium | Medium |
+| Best for | Production agent systems | Rapid prototyping | Role-based tasks | Research experiments |
+
+### Why this tutorial focuses on dsh
+
+dsh is unique among agent frameworks in that it has a **real plugin kernel** (Cordis) rather than a library of components. This means every capability — model calls, tool execution, session logging, compaction — is a plugin that can be swapped, composed, and scoped. Understanding this architecture gives you a mental model that applies beyond dsh: it's the same pattern used by VS Code, Kubernetes controllers, and webpack.
+
+This tutorial is the only resource that deconstructs dsh mechanism by mechanism, from the minimal agent loop to the full end-to-end system. The companion [pydsh](https://github.com/ChenYu1991ppak/Pydsh) project provides a runnable Python implementation of the same architecture.
