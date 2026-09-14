@@ -316,7 +316,7 @@ name = "tool-bash"
 inject = ["shell", "systemPrompt", "tools"]
 
 
-def apply(ctx: Context):
+def apply(ctx: Context, config=None):
     """tool-bash plugin body (index.ts:27): inject guidance + register the bash tool.
 
     The consumer's duties are only two:
@@ -325,14 +325,18 @@ def apply(ctx: Context):
     """
 
     # 1. guidance: teach the model to read the [exit code: N] marker (index.ts:28-30)
-    ctx.systemPrompt.section("tool:bash", _guidance_text(), order=10)
+    ctx.systemPrompt.section("tool:bash", _guidance_text(), order=20)
 
     # 2. Register the bash tool: execute is exactly a tool body inside Chapter 4's tools pipeline (index.ts:120)
-    def bash_tool(args, exec):
+    def bash_tool(args):
         # Facing the abstraction: resolve → run; the consumer doesn't know LocalBashExecutor (index.ts:120-135)
-        request = ShellExecRequest(command=args["command"], timeout_ms=args.get("timeout_ms"))
+        request = ShellExecRequest(
+            command=args["command"],
+            workdir=args.get("workdir"),
+            timeout_ms=args.get("timeout_ms"),
+        )
         spec = ctx.shell.resolve(request)
-        if args.get("background"):
+        if args.get("run_in_background"):
             proc = ctx.shell.start(spec)
             return f"[started in background, status={proc.status.value}]"
         result = ctx.shell.run(spec)
@@ -342,7 +346,7 @@ def apply(ctx: Context):
         ToolDefinition(
             name="bash",
             description="Execute bash commands (shell seam consumer)",
-            parameters={"command": "string", "timeout_ms": "int?", "background": "bool?"},
+            parameters={"command": "string", "workdir": "string?", "timeout_ms": "int?"},
             execute=bash_tool,
         )
     )
@@ -352,7 +356,7 @@ Note three places: inside `bash_tool` only `ctx.shell.resolve/run/start` appears
 
 ```python
 # ch05/code/tool_bash.py (module-level function)
-def render_result(result: ShellRunResult) -> str:
+def render_result(result) -> str:
     """Render ShellRunResult: append the shared marker at the tail (render.ts:58).
 
     The marker is the "exit-status contract" of the shell seam: the consumer is responsible for writing it,
@@ -360,15 +364,19 @@ def render_result(result: ShellRunResult) -> str:
     [Teaching decision] Timeout is written as an independent [timed out after Nms] marker,
     corresponding to parse_exit_status's timeout branch.
     """
-    body = result.stdout or ""
+    out = result.stdout
     if result.stderr:
-        body += ("\n[stderr]\n" + result.stderr) if body else result.stderr
+        out += ("\n" if out else "") + result.stderr
     if result.timed_out:
-        # [Teaching decision] Render timeout as an independent marker, ensuring parse_exit_status can read it back (write-read closed loop)
-        return body + f"\n[timed out after {result.timeout_ms}ms]"
-    if result.signal:
-        return body + f"\n[killed by signal: {result.signal}]"
-    return body + f"\n[exit code: {result.exit_code}]"
+        # [Teaching decision] render timeout as an independent marker, ensuring parse_exit_status can read it back (write-read closed loop)
+        out += f"\n[timed out after {result.timeout_ms}ms]"
+    elif result.signal:
+        out += f"\n[killed by signal: {result.signal}]"
+    elif result.aborted:
+        out += "\n[aborted]"
+    else:
+        out += f"\n[exit code: {result.exit_code}]"
+    return out
 ```
 
 The three markers `[timed out after Nms]` / `[killed by signal: X]` / `[exit code: N]` written by `render_result` can all be read back one by one by §2.3's `parse_exit_status` — writing and reading use **the same contract**, a write-read closed loop, ensuring exit-status semantics do not scatter (problem 2 fully solved).
@@ -378,7 +386,7 @@ The three markers `[timed out after Nms]` / `[killed by signal: X]` / `[exit cod
 All three roles are in place. Now we cash in this chapter's core assertion (R28): **swap out `LocalBashExecutor`, and neither the `ShellExecutor` definition nor the consumer `tool-bash` changes a single line**. This chapter adds a second provider form `SandboxExecutor` (teaching stub) to demonstrate:
 
 ```python
-# ch05/code/sandbox_executor.py (new in this chapter)
+# ch05/code/sandbox_executor.py (new in this chapter, teaching stub; complete class)
 class SandboxExecutor(ShellExecutor):
     """Simulated sandbox implementation: same interface as LocalBashExecutor, different behavior.
 
@@ -386,7 +394,7 @@ class SandboxExecutor(ShellExecutor):
     only at the assembly site is ctx.shell swapped from LocalBashExecutor to SandboxExecutor.
     """
 
-    def __init__(self, ctx):
+    def __init__(self, ctx, config=None):
         super().__init__(ctx)  # mount on ctx.shell
         self.log = []  # record the commands "put into the sandbox"
 
@@ -394,18 +402,38 @@ class SandboxExecutor(ShellExecutor):
     def sandbox_mode(self):
         return "sandbox"  # contrast with LocalBashExecutor's None
 
-    def resolve(self, request):
-        return ShellExecSpec(command=request.command, workdir="/sandbox", timeout_ms=request.timeout_ms or 30000, stdout_max_bytes=1024 * 1024)
+    def resolve(self, request: ShellExecRequest) -> ShellExecSpec:
+        return ShellExecSpec(
+            command=request.command,
+            workdir=request.workdir or os.getcwd(),
+            timeout_ms=request.timeout_ms or 120_000,
+            stdout_max_bytes=request.stdout_max_bytes or 64 * 1024,
+            signal=request.signal,
+            stdin=request.stdin,
+            env=request.env,
+            dsh_env=request.dsh_env,
+            sandbox_policy=request.sandbox_policy,
+        )
 
-    def run(self, spec):
+    def run(self, spec: ShellExecSpec) -> ShellRunResult:
         self.log.append(spec.command)
         return ShellRunResult(
             exit_code=0,
             stdout=f"[sandbox] command recorded: {spec.command}\n[sandbox] not actually executed (teaching stub)",
+            timeout_ms=spec.timeout_ms,
         )
 
-    def start(self, spec):
-        raise NotImplementedError("the teaching stub does not implement background execution")
+    def start(self, spec: ShellExecSpec) -> ShellProcess:
+        self.log.append(spec.command)
+        proc = ShellProcess(status=ShellProcessStatus.running)
+        proc.status = ShellProcessStatus.completed
+        proc.exit_code = 0
+
+        def done():
+            return proc
+
+        proc.done = done
+        return proc
 ```
 
 Note that `SandboxExecutor` **implements all three methods** `resolve`/`run`/`start` — what is swapped is the implementation, not the interface; its `run` does not really spawn, but records the command into `self.log` and returns two lines of string "command recorded / not actually executed (teaching stub)", and then the same `render_result` appends `[exit code: 0]` (§5 output segment 4). In `main.py`, the assembly site swaps `ctx.shell` from `LocalBashExecutor` to `SandboxExecutor`, and neither the consumer `tool_bash.apply` nor the definition `ShellExecutor` changes a single line.

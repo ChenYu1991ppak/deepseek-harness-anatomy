@@ -441,7 +441,7 @@ class SandboxBashExecutor(LocalBashExecutor):
 
 ## 6. Full Run Output
 
-Run command: `python3 ch06/code/main.py` (pgid, pid, elapsed time, version token, and temp paths differ each run):
+Run command: `python3 ch06/code/main.py` (pgid, pid, elapsed time, version token, and temp paths differ each run, and the interpreter path varies by machine; the transcript below comes from one real run on the author's machine):
 
 ```text
 == 1. ctx.subprocess: foreground execution (via the bash tool) ==

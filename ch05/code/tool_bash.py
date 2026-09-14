@@ -32,7 +32,7 @@ from cordis import Context  # noqa: E402
 from tools import ToolDefinition  # noqa: E402
 from shell import ShellExecRequest  # noqa: E402
 
-__all__ = ["name", "inject", "apply", "render_result"]
+__all__ = ["name", "inject", "apply"]
 
 # 三角色之「消费者」：只面向 ctx.shell 抽象，不 import 任何具体 provider。
 name = "tool-bash"

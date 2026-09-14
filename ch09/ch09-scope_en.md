@@ -158,7 +158,7 @@ class ScopedLayers:
 **Registration is an effect**. `ScopedToolRuntime.register` writes the definition into the corresponding overlay, simultaneously emits a `tools/change` event, and returns a disposer via Chapter 1's `ctx.effect` — registration itself is a reversible effect:
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... __init__ see below in this section; view / get / defined_in / execute / _dispatch_body see §4; restrict see §6 ...
 
     def register(self, definition, scope=None):
@@ -181,13 +181,13 @@ class ScopedToolRuntime:
 
             return teardown
 
-        return self.ctx.effect(setup, label=f"tool:{scope or 'global'}:{definition.name}")
+        return self.ctx.effect(setup)
 ```
 
 When `ScopedToolRuntime` is constructed, it directly reuses the global layer as the parent class's `_layer`, so registrations and executions "without passing scope" are completely identical to Chapter 4; scopes are purely incremental:
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... register see above in this section; view / get / defined_in / execute / _dispatch_body see §4; restrict see §6 ...
 
     def __init__(self, ctx, config=None):
@@ -223,7 +223,7 @@ class ScopedLayers:
 On top of the merge result, `view` further subtracts that scope's restrictions (restriction see §6), yielding the tool list actually visible to some agent:
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... __init__ / register see §3; get / defined_in / execute / _dispatch_body see this section; restrict see §6 ...
 
     def view(self, scope=None):
@@ -239,7 +239,7 @@ class ScopedToolRuntime:
 **Definition lookup and execution also go through the same shadow chain**. `get` searches in the order "exact scope → ancestors → global" and returns on the first hit; `defined_in` speaks out "which layer was hit", serving as evidence of shadow resolution:
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... __init__ / register see §3; view see above in this section; execute / _dispatch_body see below in this section; restrict see §6 ...
 
     def get(self, name, scope=None):
@@ -266,7 +266,7 @@ class ScopedToolRuntime:
 How is the scope passed in on the execution side? `ScopedToolRuntime` overrides `execute`: before execution, write the scope into the instance attribute `_exec_scope`; after execution, reset it to `None` inside `finally` — whether success or exception, it doesn't leak into the next execution. After `_dispatch_body` reads it, it replaces "get the tool from the single global layer" with "get the tool along the chain by scope" (`get`), reusing Chapter 4's guard pipeline as-is:
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... __init__ / register see §3; view / get / defined_in see above in this section; restrict see §6 ...
 
     def execute(self, exec, scope=None):
@@ -382,7 +382,7 @@ Thus §4's `effective_tools` naturally supports multi-level inheritance: `writer
 When writing, specifying scope is mandatory — the real source code throws "context-global restriction would mask every agent" here; the teaching version likewise rejects global restrictions:
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... is_restricted belongs to ScopedLayers, see below in this section; other members see §3, §4 ...
 
     def restrict(self, names, scope):

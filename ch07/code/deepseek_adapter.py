@@ -15,11 +15,6 @@ from llm_runtime import LlmAdapter
 
 __all__ = [
     "DeepSeekStubAdapter",
-    "serialize_request",
-    "parse_sse",
-    "translate",
-    "map_usage",
-    "map_finish_reason",
 ]
 
 # [教学桩] 模拟 DeepSeek chat/completions 流式响应的 SSE 文本（不发起网络请求）。

@@ -495,7 +495,7 @@ class SandboxBashExecutor(LocalBashExecutor):
 
 ## 6. 完整运行输出
 
-运行命令：`python3 ch06/code/main.py`（pgid、pid、耗时、版本 token、临时路径每次运行不同）：
+运行命令：`python3 ch06/code/main.py`（pgid、pid、耗时、版本 token、临时路径每次运行不同，解释器路径随机器而异；下文实录来自作者机器的一次真实运行）：
 
 ```text
 == 1. ctx.subprocess：前台执行（经 bash 工具） ==

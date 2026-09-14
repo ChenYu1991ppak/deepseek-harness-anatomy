@@ -22,7 +22,7 @@ from typing import Callable, Optional, Union
 # 跨章复用第 1 章的 cordis 内核（Context / Service），不复制不修改前章文件
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ch01" / "code"))
 
-from cordis import Context, Service  # noqa: E402,F401
+from cordis import Service  # noqa: E402
 
 # 人格段的固定段名（行为：常量定义），对应 index.ts:128 PERSONA_SECTION
 PERSONA_SECTION = "deployment:persona"
@@ -164,7 +164,7 @@ class SystemPrompt(Service):
 
             return teardown
 
-        return self.ctx.effect(setup, label=f"section:{name}")
+        return self.ctx.effect(setup)
 
     def context(self, name, text, order: int = 0, scope=None):
         """注册一条运行时上下文段，对应 index.ts:398 context()。
@@ -189,7 +189,7 @@ class SystemPrompt(Service):
 
             return teardown
 
-        return self.ctx.effect(setup, label=f"context:{name}")
+        return self.ctx.effect(setup)
 
     def suppress_runtime_context(self):
         """抑制运行时上下文注册，对应 index.ts:415 suppressRuntimeContext。

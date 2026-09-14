@@ -186,7 +186,7 @@ The teaching version `ch08/system_prompt.py` fully implements the above flow (om
 
             return teardown
 
-        return self.ctx.effect(setup, label=f"section:{name}")
+        return self.ctx.effect(setup)
 ```
 
 Line by line: first get the scope layer (this chapter has only the global layer); same layer + same name throws directly — problem 2's "duplicate registration undetectable" becomes one loud failure here; the registration body is wrapped in `ctx.effect`, `setup` writes the section into the registry and emits a change event, and the returned `teardown` performs the exact inverse operation. The structure of `context()` is completely symmetric with `section()`, except that sections enter the contexts registry rather than sections.

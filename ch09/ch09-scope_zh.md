@@ -158,7 +158,7 @@ class ScopedLayers:
 **注册即效应**。`ScopedToolRuntime.register` 把定义写进对应 overlay，同时发 `tools/change` 事件，并通过第 1 章的 `ctx.effect` 返回一个 disposer——注册这件事本身是个可逆效应：
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... __init__ 见本节下文；view / get / defined_in / execute / _dispatch_body 见 §4；restrict 见 §6 ...
 
     def register(self, definition, scope=None):
@@ -181,13 +181,13 @@ class ScopedToolRuntime:
 
             return teardown
 
-        return self.ctx.effect(setup, label=f"tool:{scope or 'global'}:{definition.name}")
+        return self.ctx.effect(setup)
 ```
 
 `ScopedToolRuntime` 在构造时把全局层直接复用为父类的 `_layer`，于是「不传 scope」的注册与执行跟第 4 章完全一致，作用域是纯增量：
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... register 见本节上文；view / get / defined_in / execute / _dispatch_body 见 §4；restrict 见 §6 ...
 
     def __init__(self, ctx, config=None):
@@ -223,7 +223,7 @@ class ScopedLayers:
 `view` 在合并结果上再剔除该作用域的限制（restriction 见 §6），得到某 agent 真正可见的工具列表：
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... __init__ / register 见 §3；get / defined_in / execute / _dispatch_body 见本节；restrict 见 §6 ...
 
     def view(self, scope=None):
@@ -239,7 +239,7 @@ class ScopedToolRuntime:
 **取定义与执行也走同一条 shadow 链**。`get` 按「exact scope → 祖先 → 全局」的顺序查找，第一个命中即返回；`defined_in` 则把「命中的是哪一层」说出来，作为 shadow 解析的证据：
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... __init__ / register 见 §3；view 见本节上文；execute / _dispatch_body 见本节下文；restrict 见 §6 ...
 
     def get(self, name, scope=None):
@@ -266,7 +266,7 @@ class ScopedToolRuntime:
 执行侧的作用域怎么传进来？`ScopedToolRuntime` 覆盖了 `execute`：执行前把 scope 写进实例属性 `_exec_scope`，执行后在 `finally` 里复位为 `None`——无论成功还是异常都不泄漏给下一次执行。`_dispatch_body` 读到它后，把「从单一全局层取工具」换成「按 scope 沿链取工具」（`get`），第 4 章的守卫管线原样复用：
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... __init__ / register 见 §3；view / get / defined_in 见本节上文；restrict 见 §6 ...
 
     def execute(self, exec, scope=None):
@@ -382,7 +382,7 @@ class ScopedLayers:
 写入时强制要求指定 scope——真实源码在这里会 throw「context-global restriction would mask every agent」，教学版同样拒绝全局限制：
 
 ```python
-class ScopedToolRuntime:
+class ScopedToolRuntime(ToolRuntime):
     # ... is_restricted 属 ScopedLayers，见本节下文；其余成员见 §3、§4 ...
 
     def restrict(self, names, scope):

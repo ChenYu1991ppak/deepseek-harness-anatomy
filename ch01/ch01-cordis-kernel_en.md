@@ -207,10 +207,7 @@ class Context:
         self._disposers = []   # cleanup functions of root-level effects
 
     def __getattr__(self, name):
-        """Called only when ordinary attribute lookup fails: every non-internal attribute is read as a service.
-
-        Corresponds to the Proxy get trap routing to ReflectService.get (reflect.ts:133/136).
-        """
+        """Called only when ordinary attribute lookup fails: reads from own service table."""
         if name.startswith("_"):
             raise AttributeError(name)
         services = getattr(self, Symbols.services)
@@ -219,9 +216,9 @@ class Context:
         raise ServiceNotFoundError(name)
 
     def provide(self, name, value):
-        """Register a service; returns the "unregister" disposer (reflect.ts:237-243).
+        """Register a service; returns the "unregister" disposer.
 
-        After registration, triggers service/provide and settles fibers waiting on dependencies.
+        Writes the service table → emits service/provide → settles pending fibers.
         """
         services = getattr(self, Symbols.services)
         services[name] = value
@@ -263,7 +260,7 @@ class Service:
         self.service_name = name
         if name is not None:
             dispose = ctx.provide(name, self)
-            ctx.effect(lambda: dispose, label=f"service:{name}")
+            ctx.effect(lambda: dispose)
 ```
 
 The single line `Greeter(ctx, "greeting")` accomplishes three things: "construction + registration + unload registration". Registration is not assignment but an effect: when the container is destroyed, the cleanup function registered via `ctx.effect` removes the service from the service table (see §6 for the full mechanism of `effect`).
@@ -284,41 +281,24 @@ The `ask` in Section 1 implicitly depends on the global `messages`; this depende
 ### 5.1 Three plugin shapes: normalized to "a function that receives ctx"
 
 ```python
-# cordis.py — Context.plugin and Fiber's three-shape normalization (excerpt)
+# cordis.py — Context.plugin and plugin shape normalization (excerpt)
+class Context:
     def plugin(self, callback, config=None):
-        """Register a plugin: the three shapes — function / class / apply object — are normalized here; returns the Fiber for this activation.
-
-        Corresponds to RegistryService's (registry.ts:195) plugin method (:316).
-        """
-        return Fiber(self, callback, config)
+        """Register a plugin: function / class / apply object — normalized to a body function, returns Fiber."""
+        body = _normalize(callback, config)
+        return Fiber(self, getattr(callback, "inject", None) or [], body)
 
 
-class Fiber:
-    def __init__(self, ctx, callback, config=None):
-        self.ctx = ctx
-        self.config = config
-        self.state = self.PENDING
-        self.disposers = []
-        self.inject = list(getattr(callback, "inject", None) or [])
-        self._body = self._normalize(callback, config)
-        ctx._fibers.append(self)
-        if self.deps_satisfied():  # load only when satisfied (fiber.ts:249-251)
-            self.activate()
-        else:
-            ctx._pending.append(self)
-
-    @staticmethod
-    def _normalize(callback, config):
-        """Normalize three shapes:
-
-        class → instantiate cls(ctx, config); apply object → take its apply(ctx); function → call fn(ctx) as-is.
-        """
-        if isinstance(callback, type):
+def _normalize(callback, config):
+    """Normalize three plugin shapes into 'a function that receives ctx'."""
+    if isinstance(callback, type):
+        if config is not None:
             return lambda ctx: callback(ctx, config)
-        apply_ = getattr(callback, "apply", None)
-        if callable(apply_):
-            return lambda ctx: apply_(ctx)
         return callback
+    apply_ = getattr(callback, "apply", None)
+    if callable(apply_):
+        return apply_
+    return callback
 ```
 
 Plugins come in three shapes: function, class, and object with an `apply` method. `ctx.plugin()` normalizes them into "a function that receives ctx", then creates a Fiber — one activation of the plugin. The Fiber is the host of effects: every effect registered during the plugin body's execution has its cleanup function collected on this Fiber (see §6).
@@ -353,7 +333,7 @@ class Fiber:
             _current_fiber = parent
 ```
 
-A plugin expresses "I need the `logger` service" by declaring `inject = ['logger']` on the class. `Fiber.__init__` reads this declaration with `getattr(callback, 'inject', None)`; `deps_satisfied` checks whether all these names already appear in the service table — `events` is a built-in capability of the container and doesn't count as an external dependency. If dependencies are satisfied, `activate()` immediately; if not, hang it on `ctx._pending`, and after each `provide`, `_settle_pending` rechecks them one by one, activating only when satisfied (this recheck logic was already seen in §4.1's `provide`).
+A plugin expresses "I need the `logger` service" by declaring `inject = ['logger']` on the class. `ctx.plugin()` reads the `inject` attribute from the raw callback and passes it to the Fiber. `deps_satisfied` checks whether all these names already appear in the service table — `events` is a built-in capability of the container and doesn't count as an external dependency. If dependencies are satisfied, `activate()` immediately; if not, hang it on `ctx._pending`, and after each `provide`, `_settle_pending` rechecks them one by one, activating only when satisfied (this recheck logic was already seen in §4.1's `provide`).
 
 The semantics of `inject` is "**load only when satisfied**", not "inject into constructor parameters": dependencies are declared explicitly and validated at load time; who depends on whom no longer relies on human memory. The teaching version replaces real cordis's `AsyncLocalStorage` with a module-level global `_current_fiber`; the boundary is that only one plugin loads at a time.
 
@@ -362,7 +342,7 @@ The semantics of `inject` is "**load only when satisfied**", not "inject into co
 ### 5.3 Source mapping
 
 - `ctx.plugin` → the plugin method `:316` of `RegistryService` (`vendor/cordis/src/registry.ts:195`); three-shape normalization `:92/:121/:126/:131`, normalize `:71-79`
-- `Fiber` `vendor/cordis/src/fiber.ts:184`; load only when satisfied `:249-251`; reload on dependency change `_unload/_reload` `:588-609/:646-696` (G8: this chapter only implements "load only when satisfied", not "reload on change")
+- `Fiber` `vendor/cordis/src/fiber.ts:184`; load only when satisfied `:249-251`
 
 ## 6. effect + Fiber
 
@@ -372,26 +352,22 @@ In Section 1, "cleanly unloading an agent" had nowhere to start. Cordis's soluti
 
 ```python
 # cordis.py — Context's effect registration and dispose reverse order (excerpt)
-    def effect(self, execute, label="anonymous"):
+    def effect(self, execute):
         """Register an effect: execute `execute` immediately and collect the cleanup function it returns.
 
-        Cleanup functions run in reverse order on unload (fiber.ts:415/418/431) — later-registered ones are cleaned up first.
-        The label parameter aligns with the real API; the teaching version doesn't consume it.
+        Cleanup functions run in reverse order on unload — later-registered ones are cleaned up first.
         """
         disposer = execute()
         if disposer is None:
-            disposer = lambda: None  # noqa: E731  use a no-op placeholder when there is no cleanup function
+            disposer = lambda: None
         if _current_fiber is not None:
-            _current_fiber.disposers.append(disposer)
+            _current_fiber._disposers.append(disposer)
         else:
             self._disposers.append(disposer)
         return disposer
 
     def dispose(self):
-        """Destroy the container: unload all fibers in reverse registration order, then run root-level effects in reverse.
-
-        [Teaching simplification] The real code's dispose is async with a settle timeout.
-        """
+        """Destroy the container: unload all fibers in reverse order, then run root-level effects in reverse."""
         if getattr(self, Symbols.dispose):
             return
         setattr(self, Symbols.dispose, True)
@@ -403,12 +379,12 @@ In Section 1, "cleanly unloading an agent" had nowhere to start. Cordis's soluti
 
 class Fiber:
     def dispose(self):
-        """Unload: run cleanup functions in reverse order (fiber.ts:431)."""
+        """Unload: run cleanup functions in reverse order."""
         if self.state == self.DISPOSED:
             return
-        for disposer in reversed(self.disposers):
+        for disposer in reversed(self._disposers):
             disposer()
-        self.disposers.clear()
+        self._disposers.clear()
         self.state = self.DISPOSED
 ```
 
@@ -420,8 +396,8 @@ Effects have hosts: effects registered during the plugin body's execution attach
 
 Going back to §2's `hello.py`, we can verify exactly this LIFO chain:
 
-1. `ctx.on("greet", ...)` runs at the container top level and internally goes through `self.effect(setup, ...)` — at this moment no Fiber is active, so the cleanup function attaches to `ctx._disposers`.
-2. `ctx.plugin(Greeter)` creates a Fiber and `activate()`s it; inside `Greeter.__init__`, `super().__init__(ctx, "greeting")` calls `ctx.provide(...)` and then `ctx.effect(lambda: dispose, ...)` — at this moment `_current_fiber` points to Greeter's Fiber, so the cleanup function attaches to `fiber.disposers`.
+1. `ctx.on("greet", ...)` runs at the container top level and internally goes through `self.effect(setup)` — at this moment no Fiber is active, so the cleanup function attaches to `ctx._disposers`.
+2. `ctx.plugin(Greeter)` creates a Fiber and `activate()`s it; inside `Greeter.__init__`, `super().__init__(ctx, "greeting")` calls `ctx.provide(...)` and then `ctx.effect(lambda: dispose)` — at this moment `_current_fiber` points to Greeter's Fiber, so the cleanup function attaches to `fiber._disposers`.
 3. `ctx.dispose()` first unloads Greeter's Fiber via `reversed(self._fibers)` (removing `"greeting"` from the service table), then unregisters the `"greet"` listener via `reversed(self._disposers)`.
 
 So the third output line `after dispose: ctx.greeting has been rolled back` is exactly the evidence that §6.2's Fiber-level cleanup function (the `dispose` returned by `provide`) runs in reverse order inside `fiber.dispose()`.
@@ -443,9 +419,9 @@ After capabilities are collected into services, services still need to collabora
 ```python
 # cordis.py — Context's four dispatch methods (excerpt)
     def on(self, event, listener):
-        """Register a listener; returns the off disposer (events.ts:288-302; r7 ruling).
+        """Register a listener; returns the off disposer.
 
-        Registration itself is an effect: when the host fiber unloads, it is automatically unregistered (events.ts:254 register → fiber.effect).
+        Registration itself is an effect: when the host fiber unloads, the listener is automatically unregistered.
         """
         listeners = getattr(self, Symbols.events).setdefault(event, [])
 
@@ -458,19 +434,15 @@ After capabilities are collected into services, services still need to collabora
 
             return off
 
-        return self.effect(setup, label=f"on:{event}")
+        return self.effect(setup)
 
     def emit(self, event, *args):
-        """Synchronous dispatch: call in registration order, don't wait for return values (events.ts:194; r7 ruling, :183 is parallel)."""
+        """Synchronous dispatch: call in registration order, don't wait for return values."""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             listener(*args)
 
     def serial(self, event, *args):
-        """[Teaching simplification] Simplified serial (~5 lines): call in order, return immediately upon a bail value.
-
-        The real serial awaits in order (events.ts:204-209); bail check: not None and not False
-        (isBailed, events.ts:13). This chapter uses it for the turn-stopping agent/turn-stopping (agent.ts:296).
-        """
+        """Call in order, return immediately upon a bail value (not None and not False)."""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             result = listener(*args)
             if result is not None and result is not False:
@@ -478,11 +450,7 @@ After capabilities are collected into services, services still need to collabora
         return None
 
     def waterfall(self, event, value):
-        """[Teaching simplification] Simplified waterfall: thread the return value through; returning None means pass-through.
-
-        The real waterfall is middleware-style: listeners wrap the next continuation, outermost takes priority (events.ts:234).
-        [Teaching decision G4] With no listeners, returns the initial value as-is.
-        """
+        """Thread the return value through: returning None passes through; non-None replaces the current value."""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             result = listener(value)
             if result is not None:
@@ -539,11 +507,11 @@ The correspondence between this chapter's teaching version `cordis.py` and the r
 | Container mechanism | Source location (vendor/cordis/src/) | Teaching-version difference in brief |
 |------|------|------|
 | `Context` | `context.ts:42` (interface `:16`; Proxy get trap → `reflect.ts:133`) | TS Proxy intercepts both get and set → Python's `__getattr__` only intercepts missing reads; registration goes through explicit `provide()` (G6) |
-| `Service` | `service.ts:11` (constructor `:42-59`, registration `ctx.reflect.provide` `:57`) | Uses `ctx.effect` to express "unload means remove" explicitly — registration itself is a reversible effect (r7 ruling, notes §13 D3) |
-| `Fiber` | `fiber.ts:184` | Six states (PENDING/LOADING/ACTIVE/FAILED/DISPOSED/UNLOADING) → three states; only implements "load only when satisfied", not "reload on change" (G8) |
-| `Context.plugin` | the plugin method (`:316`) of `RegistryService` (`registry.ts:195`) | The three-shape normalization logic stays the same |
+| `Service` | `service.ts:11` (constructor `:42-59`, registration `ctx.reflect.provide` `:57`) | Uses `ctx.effect` to express "unload means remove" explicitly — registration itself is a reversible effect |
+| `Fiber` | `fiber.ts:184` | Six states → three states (PENDING/ACTIVE/DISPOSED); only implements "load only when satisfied" (G8) |
+| `Context.plugin` | the plugin method (`:316`) of `RegistryService` (`registry.ts:195`) | Three-shape normalization (function / class / apply) |
 | `effect` | `context.ts:231-234` (reverse-order reclamation `fiber.ts:415/418/431`) | dispose async + settle timeout → synchronous |
-| `on`/`emit`/`serial`/`waterfall` | `events.ts:288-302` / `:194` / `:204-209` / `:234` | serial/waterfall are teaching simplifications; emit is synchronous and doesn't wait for return values (r7 ruling, `:183` is actually parallel) |
+| `on`/`emit`/`serial`/`waterfall` | `events.ts:288-302` / `:194` / `:204-209` / `:234` | serial/waterfall are teaching simplifications; emit is synchronous and doesn't wait for return values |
 
 Two supplementary points:
 
@@ -558,11 +526,11 @@ This chapter delivered five mechanisms of the container kernel, all built on `Co
 |------|--------|---------|
 | `Context` | Service table + listener table; `__getattr__` as the fallback for reading services | `context.ts:42` |
 | `Service` | Construction is registration; unregistration is an effect | `service.ts:11` |
-| `plugin` + `inject` | Three-shape normalization; dependencies "load only when satisfied" | `registry.ts:195/:316`, `fiber.ts:184` |
+| `plugin` + `inject` | Three-shape normalization; dependencies "load only when satisfied" | `registry.ts:195`, `fiber.ts:184` |
 | `effect` + `Fiber` | Registration executes immediately; LIFO reverse-order reclamation | `context.ts:231-234` |
 | `on`/`emit`/`serial`/`waterfall` | Registration itself is an effect; four dispatch methods each play their role | `events.ts:288/:194/:204/:234` |
 
-The problem chain is now closed: capabilities went from global variables to services (§4), dependencies from implicit to declarations (§5), registrations from "irrevocable" to reversible effects (§6), collaboration from "direct mutual calls" to events (§7). The five source excerpts add up to about a hundred lines, yet they form the minimal skeleton of any plugin system.
+The problem chain is now closed: capabilities went from global variables to services (§4), dependencies from implicit to declarations (§5), registrations from "irrevocable" to reversible effects (§6), collaboration from "direct mutual calls" to events (§7). The five source excerpts add up to about two hundred lines, yet they form the minimal skeleton of any plugin system.
 
 In the next chapter, "The Minimal agent-loop Closed Loop", we install `Session` (conversation history), `SystemPromptService` (prompt assembly), and `AgentLoop` (the conversation loop) as three plugins into this chapter's container, running the closed loop of "one message in, one reply out". By then, `serial`'s turn-stopping and `waterfall`'s pre-step — dispatch methods whose semantics are only explained in this chapter — will finally be put to real use.
 

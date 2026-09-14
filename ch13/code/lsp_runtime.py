@@ -78,7 +78,7 @@ class Lsp(Service):
 
             return dispose
 
-        return self.ctx.effect(setup, label=f"lsp-provider:{provider.id}")
+        return self.ctx.effect(setup)
 
     def query(self, request):
         """查询入口：按文件扩展名路由，未命中 → LSP_UNAVAILABLE（index.ts:143-149）。"""

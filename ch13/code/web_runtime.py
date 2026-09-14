@@ -77,7 +77,7 @@ class WebRuntime(Service):
 
             return dispose
 
-        return self.ctx.effect(setup, label=f"web-provider:{provider.id}")
+        return self.ctx.effect(setup)
 
     def search(self, request):
         """search 方法面：按规则选人 → provider.search → cap_sources（index.ts:140-147）。"""

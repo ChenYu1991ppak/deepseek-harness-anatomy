@@ -178,7 +178,7 @@ class ToolRuntime(Service):
             self._layer.tools.pop(name, None)
             self.ctx.emit("tools/change", {"name": name, "op": "remove"})
 
-        return self.ctx.effect(lambda: dispose, label=f"tool:{name}")
+        return self.ctx.effect(lambda: dispose)
 ```
 
 The two members newly appearing in the excerpt each deserve a sentence: `ToolRuntime.__init__` first completes Service registration with `super().__init__(ctx, "tools")` (ch01's "construction is registration"), then builds the single scoped layer `_layer` and the listener lists for the three waterfalls — the `on_pre_execute`/`on_execute`/`on_post_execute` registration calls in §4.3 simply append to these three lists (the `_seq` counter is not consumed in the teaching version). `ToolLayer`'s `guards` / `modes` fields are just placeholder containers at the registration stage: the semantics of guards (`guards`) and `guard_reason` are unfolded in §4.1 / §4.3, and the semantics of presentation modes (`modes`) are unfolded in §3.1.

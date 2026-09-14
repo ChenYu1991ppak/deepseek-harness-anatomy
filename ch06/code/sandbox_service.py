@@ -32,7 +32,6 @@ if _CH01 not in sys.path:
 from cordis import Service  # noqa: E402
 
 __all__ = [
-    "ConfinedArgv",
     "SandboxMode",
     "SandboxPolicy",
     "SandboxProvider",

@@ -38,10 +38,7 @@ from shell import (  # noqa: E402
 )
 
 __all__ = [
-    "ENV_OVERRIDES",
-    "Config",
     "LocalBashExecutor",
-    "assert_serviceable_bash_config",
 ]
 
 # 模型友好环境覆盖：抑制颜色/分页/交互（index.ts:27）。

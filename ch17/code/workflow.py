@@ -24,10 +24,9 @@ stopReason 封闭 union → 事件只观察」这套契约主干，这是 17a �
 """
 import json
 
-__all__ = ["WorkflowEngine", "STOP_COMPLETED", "STOP_CANCELLED", "STOP_ERROR"]
+__all__ = ["WorkflowEngine"]
 
 STOP_COMPLETED = "completed"
-STOP_CANCELLED = "cancelled"
 STOP_ERROR = "error"
 
 
@@ -113,8 +112,9 @@ class _WorkflowRun:
                                {"id": self.id, "stopReason": self.result["stopReason"]})
 
     def cancel(self):
-        """[教学简化] 真实 cancel 可强停 worker thread（host.ts:180 幂等）；
-        教学版同步执行，没有可中断点，仅保留接口与幂等语义。"""
+        """[教学简化] 真实 cancel 可强停 worker thread（host.ts:180 幂等），
+        并把 stopReason 置为 "cancelled"；教学版同步执行，没有可中断点，
+        仅保留接口与幂等语义。"""
 
     def dispose(self):
         """幂等清理，对应 host.ts:221（有界停稳子 agent）。"""

@@ -177,7 +177,7 @@ class ToolRuntime(Service):
             self._layer.tools.pop(name, None)
             self.ctx.emit("tools/change", {"name": name, "op": "remove"})
 
-        return self.ctx.effect(lambda: dispose, label=f"tool:{name}")
+        return self.ctx.effect(lambda: dispose)
 ```
 
 摘录中新出现的两个成员各交代一句：`ToolRuntime.__init__` 先以 `super().__init__(ctx, "tools")` 完成 Service 注册（ch01「构造即注册」），再建好唯一的作用域层 `_layer` 与三条瀑布的监听器列表——§4.3 的 `on_pre_execute`/`on_execute`/`on_post_execute` 注册调用就是往这三个列表里 append（`_seq` 计数器教学版未消费）。`ToolLayer` 的 `guards` / `modes` 两个字段在注册阶段只是占位容器：守卫（`guards`）与 `guard_reason` 的语义在 §4.1 / §4.3 展开，展示模式（`modes`）的语义在 §3.1 展开。

@@ -207,10 +207,7 @@ class Context:
         self._disposers = []   # 根级 effect 的清理函数
 
     def __getattr__(self, name):
-        """普通属性查找失败时才调用：一切非内部属性都按服务读取。
-
-        对应 Proxy get 陷阱路由到 ReflectService.get（reflect.ts:133/136）。
-        """
+        """普通属性查找失败时按服务名查服务表。"""
         if name.startswith("_"):
             raise AttributeError(name)
         services = getattr(self, Symbols.services)
@@ -219,9 +216,9 @@ class Context:
         raise ServiceNotFoundError(name)
 
     def provide(self, name, value):
-        """注册服务，返回「注销」disposer（reflect.ts:237-243）。
+        """注册服务，返回「注销」disposer。
 
-        注册后触发 service/provide，并结算等待依赖的 fiber。
+        写服务表 → 派发 service/provide → 结算等待依赖的 fiber。
         """
         services = getattr(self, Symbols.services)
         services[name] = value
@@ -253,9 +250,8 @@ Context 的全部机制都建立在两张表上：服务表（name → 实例）
 class Service:
     """服务基类：构造即注册。
 
-    对应 vendor/cordis/src/service.ts:11：构造器 :42-59 调 ctx.reflect.provide（:57）把实例挂到 ctx.<key>
-    （r7 裁定，notes §13 D3）。
-    教学版用 ctx.effect 显式表达「卸载即移除」——注册本身就是可逆效应。
+    对应 vendor/cordis/src/service.ts:11。
+    注册本身是可逆效应——容器销毁时自动从服务表移除。
     """
 
     def __init__(self, ctx, name=None):
@@ -263,7 +259,7 @@ class Service:
         self.service_name = name
         if name is not None:
             dispose = ctx.provide(name, self)
-            ctx.effect(lambda: dispose, label=f"service:{name}")
+            ctx.effect(lambda: dispose)
 ```
 
 `Greeter(ctx, "greeting")` 一行就完成了「构造 + 注册 + 卸载登记」三件事。注册不是赋值，而是一个效应：容器销毁时，`ctx.effect` 登记的清理函数会把服务从服务表移除（`effect` 的完整机制见 §6）。
@@ -284,41 +280,24 @@ class Service:
 ### 5.1 插件三形态：归一化为「接收 ctx 的函数」
 
 ```python
-# cordis.py —— Context.plugin 与 Fiber 的三形态归一化（节选）
+# cordis.py —— Context.plugin 与插件三形态归一（节选）
+class Context:
     def plugin(self, callback, config=None):
-        """注册插件：函数 / 类 / apply 对象三形态在此归一化，返回本次激活的 Fiber。
-
-        对应 RegistryService（registry.ts:195）plugin 方法（:316）。
-        """
-        return Fiber(self, callback, config)
+        """注册插件：函数 / 类 / apply 对象三形态归一，返回 Fiber。"""
+        body = _normalize(callback, config)
+        return Fiber(self, getattr(callback, "inject", None) or [], body)
 
 
-class Fiber:
-    def __init__(self, ctx, callback, config=None):
-        self.ctx = ctx
-        self.config = config
-        self.state = self.PENDING
-        self.disposers = []
-        self.inject = list(getattr(callback, "inject", None) or [])
-        self._body = self._normalize(callback, config)
-        ctx._fibers.append(self)
-        if self.deps_satisfied():  # 满足才加载（fiber.ts:249-251）
-            self.activate()
-        else:
-            ctx._pending.append(self)
-
-    @staticmethod
-    def _normalize(callback, config):
-        """三形态归一：
-
-        类 → 实例化 cls(ctx, config)；apply 对象 → 取其 apply(ctx)；函数 → 原样调用 fn(ctx)。
-        """
-        if isinstance(callback, type):
+def _normalize(callback, config):
+    """三种插件形态归一化为「接收 ctx 的函数」。"""
+    if isinstance(callback, type):
+        if config is not None:
             return lambda ctx: callback(ctx, config)
-        apply_ = getattr(callback, "apply", None)
-        if callable(apply_):
-            return lambda ctx: apply_(ctx)
         return callback
+    apply_ = getattr(callback, "apply", None)
+    if callable(apply_):
+        return apply_
+    return callback
 ```
 
 插件有三种形态：函数、类、带 `apply` 方法的对象。`ctx.plugin()` 把它们归一化为「接收 ctx 的函数」，然后创建 Fiber——插件的一次激活。Fiber 是 effect 的宿主：插件体执行期间注册的所有 effect，清理函数都收集在这个 Fiber 上（见 §6）。
@@ -353,16 +332,14 @@ class Fiber:
             _current_fiber = parent
 ```
 
-插件通过在类上声明 `inject = ['logger']` 来表达「我需要 `logger` 这个服务」。`Fiber.__init__` 用 `getattr(callback, 'inject', None)` 读出这份声明；`deps_satisfied` 检查这些名字是否都已出现在服务表里——`events` 是容器内置能力，不计入外部依赖。依赖满足，立即 `activate()`；不满足，挂进 `ctx._pending`，等每次 `provide` 后由 `_settle_pending` 逐个复查，满足才激活（这个复查逻辑已在 §4.1 的 `provide` 里见过）。
-
-`inject` 的语义是「**满足才加载**」，不是「注入到构造函数参数里」：依赖是显式声明、加载期校验的，谁依赖谁不再靠人脑记忆。教学版以模块级全局变量 `_current_fiber` 替代真实 cordis 的 `AsyncLocalStorage`，边界是同一时刻只加载一个插件。
+插件通过在类上声明 `inject = ['logger']` 来表达「我需要 `logger` 这个服务」。`ctx.plugin()` 从原始回调上读出 `inject` 属性并传给 Fiber。`deps_satisfied` 检查这些名字是否都已出现在服务表里——`events` 是容器内置能力，不计入外部依赖。依赖满足，立即 `activate()`；不满足，挂进 `ctx._pending`，等每次 `provide` 后由 `_settle_pending` 逐个复查，满足才激活（这个复查逻辑已在 §4.1 的 `provide` 里见过）。
 
 **回溯**：这一节解决了问题 ②——依赖从隐式变成了 `inject` 声明，容器在加载期校验。但「注册」本身还不能撤销：插件加载后如何干净卸载、资源如何回收，尚无答案。这正是问题 ③，由下一节的 `effect` + `Fiber` 解决。
 
 ### 5.3 源码对照
 
 - `ctx.plugin` → `RegistryService`（`vendor/cordis/src/registry.ts:195`）的 plugin 方法 `:316`；三形态归一 `:92/:121/:126/:131`，normalize `:71-79`
-- `Fiber` `vendor/cordis/src/fiber.ts:184`；满足才加载 `:249-251`；依赖变化重载 `_unload/_reload` `:588-609/:646-696`（G8：本章只实现「满足才加载」，不实现「变化即重载」）
+- `Fiber` `vendor/cordis/src/fiber.ts:184`；满足才加载 `:249-251`
 
 ## 6. effect + Fiber
 
@@ -372,26 +349,22 @@ class Fiber:
 
 ```python
 # cordis.py —— Context 的 effect 注册与 dispose 逆序（节选）
-    def effect(self, execute, label="anonymous"):
+    def effect(self, execute):
         """注册 effect：立即执行 execute，收集其返回的清理函数。
 
-        清理函数在卸载时逆序执行（fiber.ts:415/418/431）——后注册的先清理。
-        label 参数对齐真实 API，教学版不消费它。
+        清理函数在卸载时逆序执行——后注册的先清理。
         """
         disposer = execute()
         if disposer is None:
-            disposer = lambda: None  # noqa: E731  无清理函数时用 no-op 占位
+            disposer = lambda: None
         if _current_fiber is not None:
-            _current_fiber.disposers.append(disposer)
+            _current_fiber._disposers.append(disposer)
         else:
             self._disposers.append(disposer)
         return disposer
 
     def dispose(self):
-        """销毁容器：按注册逆序卸载全部 fiber，再逆序执行根级 effect。
-
-        [教学简化] 真实代码 dispose 异步且带 settle 超时。
-        """
+        """销毁容器：按注册逆序卸载全部 fiber，再逆序执行根级 effect。"""
         if getattr(self, Symbols.dispose):
             return
         setattr(self, Symbols.dispose, True)
@@ -403,12 +376,12 @@ class Fiber:
 
 class Fiber:
     def dispose(self):
-        """卸载：逆序执行清理函数（fiber.ts:431）。"""
+        """卸载：逆序执行清理函数。"""
         if self.state == self.DISPOSED:
             return
-        for disposer in reversed(self.disposers):
+        for disposer in reversed(self._disposers):
             disposer()
-        self.disposers.clear()
+        self._disposers.clear()
         self.state = self.DISPOSED
 ```
 
@@ -420,8 +393,8 @@ effect 有宿主之分：插件体执行期间注册的 effect 挂在当前 Fibe
 
 回到 §2 的 `hello.py`，正好能验证这条 LIFO 链：
 
-1. `ctx.on("greet", ...)` 在容器顶层执行，内部走 `self.effect(setup, ...)`——此时没有 Fiber 在激活，清理函数挂到 `ctx._disposers`。
-2. `ctx.plugin(Greeter)` 创建一个 Fiber 并 `activate()`；`Greeter.__init__` 里 `super().__init__(ctx, "greeting")` 调 `ctx.provide(...)` 再 `ctx.effect(lambda: dispose, ...)`——此时 `_current_fiber` 指向 Greeter 的 Fiber，清理函数挂到 `fiber.disposers`。
+1. `ctx.on("greet", ...)` 在容器顶层执行，内部走 `self.effect(setup)`——此时没有 Fiber 在激活，清理函数挂到 `ctx._disposers`。
+2. `ctx.plugin(Greeter)` 创建一个 Fiber 并 `activate()`；`Greeter.__init__` 里 `super().__init__(ctx, "greeting")` 调 `ctx.provide(...)` 再 `ctx.effect(lambda: dispose)`——此时 `_current_fiber` 指向 Greeter 的 Fiber，清理函数挂到 `fiber._disposers`。
 3. `ctx.dispose()` 先 `reversed(self._fibers)` 卸载 Greeter 的 Fiber（把 `"greeting"` 从服务表移除），再 `reversed(self._disposers)` 注销 `"greet"` 监听器。
 
 所以第三行输出 `dispose 之后：ctx.greeting 已被回滚`，正是 §6.2 的 Fiber 级清理函数（`provide` 返回的 `dispose`）在 `fiber.dispose()` 里被逆序执行的证据。
@@ -443,9 +416,9 @@ effect 有宿主之分：插件体执行期间注册的 effect 挂在当前 Fibe
 ```python
 # cordis.py —— Context 的四种派发（节选）
     def on(self, event, listener):
-        """注册监听器，返回 off disposer（events.ts:288-302；r7 裁定）。
+        """注册监听器，返回 off disposer。
 
-        注册本身是 effect：宿主 fiber 卸载时自动注销（events.ts:254 register → fiber.effect）。
+        注册本身是 effect：宿主 fiber 卸载时自动注销。
         """
         listeners = getattr(self, Symbols.events).setdefault(event, [])
 
@@ -458,19 +431,15 @@ effect 有宿主之分：插件体执行期间注册的 effect 挂在当前 Fibe
 
             return off
 
-        return self.effect(setup, label=f"on:{event}")
+        return self.effect(setup)
 
     def emit(self, event, *args):
-        """同步派发：按注册顺序调用，不等返回值（events.ts:194；r7 裁定，:183 是 parallel）。"""
+        """同步派发：按注册顺序调用，不等返回值。"""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             listener(*args)
 
     def serial(self, event, *args):
-        """[教学简化] 简化 serial（约 5 行）：顺序调用，遇 bail 值立即返回。
-
-        真实 serial 顺序 await（events.ts:204-209）；bail 判定：非 None 且非 False
-        （isBailed，events.ts:13）。本章用于 turn-stopping agent/turn-stopping（agent.ts:296）。
-        """
+        """顺序调用，遇 bail 值（非 None 且非 False）立即返回。"""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             result = listener(*args)
             if result is not None and result is not False:
@@ -478,11 +447,7 @@ effect 有宿主之分：插件体执行期间注册的 effect 挂在当前 Fibe
         return None
 
     def waterfall(self, event, value):
-        """[教学简化] 简化 waterfall：把返回值穿下去，返回 None 视为放行。
-
-        真实 waterfall 是中间件式：监听器包裹 next 续体、最外层优先（events.ts:234）。
-        [教学决策 G4] 无监听器时原样返回初始 value。
-        """
+        """把返回值逐个传递：返回 None 放行，非 None 替换当前值。"""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             result = listener(value)
             if result is not None:
@@ -539,11 +504,11 @@ dispose 之后：ctx.greeting 已被回滚
 | 容器机制 | 源码位置（vendor/cordis/src/） | 教学版差异概括 |
 |------|------|------|
 | `Context` | `context.ts:42`（接口 `:16`；Proxy get 陷阱 → `reflect.ts:133`） | TS Proxy 同时拦截 get/set → Python `__getattr__` 只拦截缺失读取，注册走显式 `provide()`（G6） |
-| `Service` | `service.ts:11`（构造器 `:42-59`，注册 `ctx.reflect.provide` `:57`） | 用 `ctx.effect` 显式表达「卸载即移除」——注册本身是可逆效应（r7 裁定，notes §13 D3） |
-| `Fiber` | `fiber.ts:184` | 六态（PENDING/LOADING/ACTIVE/FAILED/DISPOSED/UNLOADING）→ 三态；只实现「满足才加载」，不实现「变化即重载」（G8） |
-| `Context.plugin` | `RegistryService`（`registry.ts:195`）plugin 方法（`:316`） | 三形态归一逻辑保持一致 |
+| `Service` | `service.ts:11`（构造器 `:42-59`，注册 `ctx.reflect.provide` `:57`） | 用 `ctx.effect` 显式表达「卸载即移除」——注册本身是可逆效应 |
+| `Fiber` | `fiber.ts:184` | 六态 → 三态（PENDING/ACTIVE/DISPOSED）；只实现「满足才加载」（G8） |
+| `Context.plugin` | `RegistryService`（`registry.ts:195`）plugin 方法（`:316`） | 三形态归一（函数 / 类 / apply） |
 | `effect` | `context.ts:231-234`（逆序回收 `fiber.ts:415/418/431`） | dispose 异步 + settle 超时 → 同步 |
-| `on`/`emit`/`serial`/`waterfall` | `events.ts:288-302` / `:194` / `:204-209` / `:234` | serial/waterfall 教学简化；emit 同步不等返回值（r7 裁定，`:183` 实为 parallel） |
+| `on`/`emit`/`serial`/`waterfall` | `events.ts:288-302` / `:194` / `:204-209` / `:234` | serial/waterfall 教学简化；emit 同步不等返回值 |
 
 两点补充：
 
@@ -558,11 +523,11 @@ dispose 之后：ctx.greeting 已被回滚
 |------|--------|---------|
 | `Context` | 服务表 + 监听器表，`__getattr__` 兜底读服务 | `context.ts:42` |
 | `Service` | 构造即注册，注销是一个 effect | `service.ts:11` |
-| `plugin` + `inject` | 三形态归一化；依赖「满足才加载」 | `registry.ts:195/:316`、`fiber.ts:184` |
+| `plugin` + `inject` | 三形态归一化；依赖「满足才加载」 | `registry.ts:195`、`fiber.ts:184` |
 | `effect` + `Fiber` | 注册即执行，LIFO 逆序回收 | `context.ts:231-234` |
 | `on`/`emit`/`serial`/`waterfall` | 注册本身是 effect；四种派发各司其职 | `events.ts:288/:194/:204/:234` |
 
-问题链至此闭合：能力从全局变量变成了服务（§4），依赖从隐式变成了声明（§5），注册从「无法撤销」变成了可逆效应（§6），协作从「直接互调」变成了事件（§7）。五段源码加起来约百行，却构成了一切插件系统的最小骨架。
+问题链至此闭合：能力从全局变量变成了服务（§4），依赖从隐式变成了声明（§5），注册从「无法撤销」变成了可逆效应（§6），协作从「直接互调」变成了事件（§7）。五段源码加起来约两百行，却构成了一切插件系统的最小骨架。
 
 下一章《最小 agent-loop 闭环》，我们把 `Session`（会话历史）、`SystemPromptService`（提示词组装）、`AgentLoop`（对话循环）作为三个插件装进本章的容器，跑出「一条消息进、一条回复出」的闭环。到那时，`serial` 的 turn-stopping、`waterfall` 的 pre-step 这些本章只讲语义的派发，会第一次真正派上用场。
 

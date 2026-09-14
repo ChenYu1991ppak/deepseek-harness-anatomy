@@ -325,7 +325,7 @@ class SystemPromptService(Service):
             self._sections.append(entry)
             return lambda: self._sections.remove(entry)
 
-        return self.ctx.effect(setup, label=f"section:{name}")
+        return self.ctx.effect(setup)
 
     def assemble(self):
         """按 order 升序组装，对应 assemble（index.ts:467）。
@@ -357,7 +357,7 @@ def render_prompt(assembly):
 
 ### 5.1 LlmStub：模型桩
 
-`step` 最终要调用模型。本章不接真实模型，用一个流式桩代替——它按真实 `LlmRuntime.stream` 的调用约定工作：接收 `messages` 与 `system_prompt`，yield 一串 chunk。
+`step` 最终要调用模型。本章不接真实模型，用一个流式桩代替——调用方按真实 `LlmRuntime.stream` 的约定传入 `messages` 与 `system_prompt`；桩只消费 `messages`，其余进 `**options` 忽略，yield 一串 chunk。
 
 ```python
 # ch02/code/agent_loop.py（本章新增）
@@ -372,7 +372,7 @@ class LlmStub:
     [教学决策 G7] 真实版是 async 流；教学版用同步生成器，机制语义不变。
     """
 
-    def stream(self, messages, system_prompt=None, **options):
+    def stream(self, messages, **options):
         user_text = messages[-1]["content"] if messages else ""
         for piece in (
             f"收到问题「{user_text}」。",
@@ -672,26 +672,10 @@ sequenceDiagram
 
 ```python
 # ch02/code/main.py（本章可运行入口）
-"""第 2 章演示：最小 agent-loop 闭环（一条消息进，一条回复出）。
+# ... docstring 与 sys.path 跨章导入样板（第 1-12 行 docstring + 第 16-20 行路径设置）从略，见代码文件 ...
 
-仅标准库，Python 3.10+。运行：python3 main.py
-
-演示环节（聚焦 agent-loop 装配闭环，不复演第 1 章机制教学段）：
-1. 建容器
-2. provide sessions + llm
-3. 注册 identity 提示词片段（section 注册即效应）
-4. plugin 加载 AgentLoop（inject 满足才加载）
-5. 注册监听器：session/event 打印 + session-start 打印 + pre-step 注入
-6. followup 跑一轮闭环：事件流 + 拼出 assistant 消息
-"""
 import os
 import sys
-
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_CH01 = os.path.abspath(os.path.join(_HERE, "..", "ch01"))
-for _p in (_HERE, _CH01):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
 from cordis import Context  # noqa: E402
 from agent_loop import AgentLoop, LlmStub, Sessions, SystemPromptService, render_prompt  # noqa: E402

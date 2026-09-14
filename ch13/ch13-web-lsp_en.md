@@ -184,7 +184,7 @@ class WebRuntime(Service):
 
             return dispose
 
-        return self.ctx.effect(setup, label=f"web-provider:{provider.id}")
+        return self.ctx.effect(setup)
 ```
 
 Three details:
@@ -399,7 +399,7 @@ class Lsp(Service):
 
             return dispose
 
-        return self.ctx.effect(setup, label=f"lsp-provider:{provider.id}")
+        return self.ctx.effect(setup)
 ```
 
 ```mermaid

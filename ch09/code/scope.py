@@ -22,8 +22,7 @@ for _p in (_HERE, _CH04, _CH01):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from cordis import Service  # noqa: E402
-from tools import ToolDefinition, ToolExecution, ToolLayer, ToolResult, ToolRuntime  # noqa: E402
+from tools import ToolLayer, ToolResult, ToolRuntime  # noqa: E402
 
 
 class ScopedLayers:
@@ -160,7 +159,7 @@ class ScopedToolRuntime(ToolRuntime):
 
             return teardown
 
-        return self.ctx.effect(setup, label=f"tool:{scope or 'global'}:{definition.name}")
+        return self.ctx.effect(setup)
 
     # ---------- restriction（写路径）----------
 

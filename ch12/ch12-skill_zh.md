@@ -264,19 +264,8 @@ class BadgeSkillProvider(SkillProvider):
     name = "dsh-badge"  # PROVIDER_NAME（skill-badge/src/index.ts:17）
 
     def __init__(self):
-        # 内置正文直接写在代码里；真实 badge 从资源 URL 读（SKILL_BODY_URL:18）。
-        self._bodies = {
-            "skill-creator": (
-                "创建新技能的步骤：\n"
-                "1. 新建目录并写 SKILL.md（frontmatter 声明 name/description）。\n"
-                "2. 正文写清触发条件与操作步骤。\n"
-                "3. 放进技能目录，由 filesystem provider 扫描加载。"
-            ),
-            "code-review": (
-                "通用代码评审（内置兜底版）：\n"
-                "1. 检查语法与明显错误。"
-            ),
-        }
+        # 内置正文直接写在代码里（skill-creator / code-review 两段）；全文见代码文件
+        self._bodies = {...}
 
     def list(self):
         """静态返回内置候选（对应 list:()=>[CANDIDATE]，skill-badge/src/index.ts:38）。"""

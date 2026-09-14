@@ -186,7 +186,7 @@ flowchart TB
 
             return teardown
 
-        return self.ctx.effect(setup, label=f"section:{name}")
+        return self.ctx.effect(setup)
 ```
 
 逐行看：先取作用域层（本章只有全局层）；同层同名直接抛错——问题 2 的「重复注册无从检测」在这里变成一次响亮的失败；注册本体包在 `ctx.effect` 里，`setup` 把段写进注册表并发出变更事件，返回的 `teardown` 做精确逆操作。`context()` 的结构与 `section()` 完全对称，只是段进入 contexts 注册表而非 sections。

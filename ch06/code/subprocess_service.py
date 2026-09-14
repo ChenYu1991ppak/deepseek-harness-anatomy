@@ -32,11 +32,7 @@ if _CH01 not in sys.path:
 from cordis import Service  # noqa: E402
 
 __all__ = [
-    "DSH_ENV_PREFIX",
-    "OutputCollector",
-    "SubprocessHandle",
     "SubprocessService",
-    "scrub_env",
 ]
 
 # 凭据形变量名（index.ts:44 SENSITIVE_ENV_PATTERN）。
@@ -202,7 +198,7 @@ class SubprocessService(Service):
         self._grace_ms = (config or {}).get("grace_ms", 3000)
         # dispose 兜底回收（index.ts:79 disposeManagedProcesses）：
         # context 卸载时 terminate 所有仍存活的受管进程，杜绝进程泄漏。
-        ctx.effect(self._dispose_managed, label="subprocess:dispose-managed")
+        ctx.effect(self._dispose_managed)
 
     def spawn(self, argv, workdir=None, env=None, timeout_ms=None):
         """spawn 全显式、无默认（index.ts:130）：先 scrub 父环境再合并显式 env。"""

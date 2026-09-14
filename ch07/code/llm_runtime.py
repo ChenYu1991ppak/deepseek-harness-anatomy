@@ -16,7 +16,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-__all__ = ["LlmAdapter", "LlmRuntime", "BlockAssembler", "STREAM_CHUNK_TYPES"]
+__all__ = [
+    "LlmAdapter",
+    "LlmRuntime",
+    "BlockAssembler",
+]
 
 # StreamChunk 的 7 个变体（types.ts:291）；教学版用 dict 表达，靠 "type" 字段判别。
 STREAM_CHUNK_TYPES = (

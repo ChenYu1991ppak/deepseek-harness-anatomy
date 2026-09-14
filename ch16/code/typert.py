@@ -25,10 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "ch01" / 
 from cordis import Service  # noqa: E402  复用第 1 章 Service：构造即注册
 
 __all__ = [
-    "CODEC_SRC_JSON", "CODEC_STRICT", "InvocationDescriptor",
-    "InvocationParameterDescriptor", "TypeGraph", "TypeNode",
-    "TypertContribution", "TypertError", "TypertRegistry",
-    "generate_contribution", "typert_endpoint", "typert_key",
+    "CODEC_SRC_JSON", "InvocationDescriptor",
+    "InvocationParameterDescriptor",
+    "TypertError", "TypertRegistry",
+    "generate_contribution", "typert_endpoint",
 ]
 
 
@@ -253,4 +253,4 @@ class TypertRegistry(Service):
 
             return dispose
 
-        return self.ctx.effect(commit, label=f"typert:register:{contribution.package}")
+        return self.ctx.effect(commit)

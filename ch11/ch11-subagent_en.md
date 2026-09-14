@@ -116,7 +116,7 @@ class SubagentRegistry:
             self._providers.pop(name, None)
 
         # effect runs the lambda immediately and collects its returned cleanup (cordis.py:167): unregistering = deregistering
-        return self.ctx.effect(lambda: unregister, label=f"subagent-provider:{provider.name}")
+        return self.ctx.effect(lambda: unregister)
 
     # ... expect_provider (fetch by name, raise UNKNOWN_PROVIDER if missing, expectProvider index.ts:449)
     # ... and list_providers (list by insertion order, list index.ts:400) omitted, see the code file ...

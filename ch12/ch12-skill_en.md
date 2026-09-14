@@ -268,19 +268,8 @@ class BadgeSkillProvider(SkillProvider):
     name = "dsh-badge"  # PROVIDER_NAME (skill-badge/src/index.ts:17)
 
     def __init__(self):
-        # Bundled bodies written directly in code; the real badge reads from a resource URL (SKILL_BODY_URL:18).
-        self._bodies = {
-            "skill-creator": (
-                "Steps to create a new skill:\n"
-                "1. Create a directory and write SKILL.md (frontmatter declares name/description).\n"
-                "2. The body spells out the trigger conditions and operation steps.\n"
-                "3. Place it in a skill directory for the filesystem provider to scan and load."
-            ),
-            "code-review": (
-                "General code review (bundled fallback version):\n"
-                "1. Check syntax and obvious errors."
-            ),
-        }
+        # Bundled bodies (skill-creator / code-review); full text in code file
+        self._bodies = {...}
 
     def list(self):
         """Statically return the bundled candidates (corresponds to list:()=>[CANDIDATE], skill-badge/src/index.ts:38)."""

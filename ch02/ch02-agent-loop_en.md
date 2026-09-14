@@ -325,7 +325,7 @@ class SystemPromptService(Service):
             self._sections.append(entry)
             return lambda: self._sections.remove(entry)
 
-        return self.ctx.effect(setup, label=f"section:{name}")
+        return self.ctx.effect(setup)
 
     def assemble(self):
         """Assemble by order ascending, corresponds to assemble (index.ts:467).
@@ -357,7 +357,7 @@ The previous two sections built the event stream (§3) and prompt assembly (§4)
 
 ### 5.1 LlmStub: the model stub
 
-`step` ultimately calls the model. This chapter does not connect a real model; a streaming stub stands in — it works according to the real `LlmRuntime.stream` calling convention: receives `messages` and `system_prompt`, yields a series of chunks.
+`step` ultimately calls the model. This chapter does not connect a real model; a streaming stub stands in — callers pass `messages` and `system_prompt` per the real `LlmRuntime.stream` convention; the stub only consumes `messages` (the rest land in `**options` and are ignored), yielding a series of chunks.
 
 ```python
 # ch02/code/agent_loop.py (new in this chapter)
@@ -372,7 +372,7 @@ class LlmStub:
     [Teaching decision G7] The real version is an async stream; the teaching version uses a synchronous generator, mechanism semantics unchanged.
     """
 
-    def stream(self, messages, system_prompt=None, **options):
+    def stream(self, messages, **options):
         user_text = messages[-1]["content"] if messages else ""
         for piece in (
             f'Received the question "{user_text}". ',
@@ -672,26 +672,10 @@ This chapter's runnable entry point is `main.py`, demonstrating the assembly clo
 
 ```python
 # ch02/code/main.py (this chapter's runnable entry point)
-"""Chapter 2 demo: the minimal agent-loop closed loop (one message in, one reply out).
+# ... docstring and sys.path boilerplate (lines 1-12 docstring + lines 16-20 path setup) omitted, see code file ...
 
-Standard library only, Python 3.10+. Run: python3 main.py
-
-Demo stages (focused on the agent-loop assembly closed loop, not re-performing Chapter 1's mechanism teaching segments):
-1. Create the container
-2. provide sessions + llm
-3. Register the identity prompt section (section registration is an effect)
-4. plugin-load AgentLoop (loads only when inject is satisfied)
-5. Register listeners: session/event printer + session-start printer + pre-step injection
-6. followup runs one closed-loop turn: event stream + assembled assistant message
-"""
 import os
 import sys
-
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_CH01 = os.path.abspath(os.path.join(_HERE, "..", "ch01"))
-for _p in (_HERE, _CH01):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
 from cordis import Context  # noqa: E402
 from agent_loop import AgentLoop, LlmStub, Sessions, SystemPromptService, render_prompt  # noqa: E402

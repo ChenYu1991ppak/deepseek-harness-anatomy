@@ -2,44 +2,37 @@
 
 仅标准库，Python 3.10+。
 
-源码对应（vendor/cordis/src/，行号为 notes §13 r7 裁定）：
-- Context                    ↔ context.ts:42（容器；接口 :16；Proxy get 陷阱路由 → reflect.ts:133）
-- Service                    ↔ service.ts:11（构造器 :42-59，注册语句 ctx.reflect.provide :57；r7 裁定 notes §13 D3）
-- Fiber                      ↔ fiber.ts:184（插件的一次激活；effect/逆序回收 :415/:418/:431）
-- Context.plugin             ↔ RegistryService（registry.ts:195）plugin（:316），三形态归一在 plugin 内
-- on/emit/serial/waterfall   ↔ events.ts:288（on）/:194（emit）/:204（serial）/:234（waterfall）
-                              （r7 裁定 notes §13 D1；:183 是 parallel，不是 emit）
+源码对应（vendor/cordis/src/）：
+- Context                    ↔ context.ts:42
+- Service                    ↔ service.ts:11
+- Fiber                      ↔ fiber.ts:184
+- Context.plugin             ↔ registry.ts:195 plugin(:316)
+- on/emit/serial/waterfall   ↔ events.ts:288/194/204/234
 """
 from __future__ import annotations
 
-__all__ = ["Context", "Fiber", "Service", "ServiceNotFoundError", "Symbols"]
+from typing import Callable
+
+__all__ = [
+    "Context", "Fiber", "Service", "ServiceNotFoundError", "Symbols",
+]
 
 
 class Symbols:
-    """对应 vendor/cordis/src/utils.ts:50-73（源码无独立 symbols.ts；r7 裁定）。
+    """对应 vendor/cordis/src/utils.ts:50-73 的 Symbol.for('cordis:*')。
 
-    [教学决策] Symbol.for('cordis:...') → 双下划线字符串常量（notes §6 符号映射）。
-    教学版实际使用 services/events/dispose 三个，其余列出仅供映射参考。
+    教学版实际使用 services / events / dispose 三个。
     """
 
-    invoke = "__cordis_invoke__"
-    dispose = "__cordis_dispose__"
-    events = "__cordis_events__"
-    fiber = "__cordis_fiber__"
-    inject = "__cordis_inject__"
-    intercept = "__cordis_intercept__"
-    parent = "__cordis_parent__"
-    provider = "__cordis_provider__"
-    root = "__cordis_root__"
     services = "__cordis_services__"
-    setup = "__cordis_setup__"
+    events = "__cordis_events__"
+    dispose = "__cordis_dispose__"
 
 
 class ServiceNotFoundError(AttributeError):
     """读取未提供服务时抛出。
 
-    [教学决策 G1] 素材未给定错误类型；此处定义为继承 AttributeError，
-    使 getattr(ctx, name, default) 的缺省值写法仍然可用。
+    [教学决策 G1] 继承 AttributeError，使 getattr(ctx, name, default) 的 fallback 仍可用。
     """
 
     def __init__(self, name: str):
@@ -47,35 +40,24 @@ class ServiceNotFoundError(AttributeError):
         self.service_name = name
 
 
-# [教学简化] 真实 cordis 用 AsyncLocalStorage 找到宿主 fiber；
-# 教学版同步单线程，用模块级变量标记「当前正在激活的 fiber」即可。
 _current_fiber: "Fiber | None" = None
 
 
 class Context:
-    """插件执行环境：服务解析、依赖注入、事件派发、生命周期注册四合一。
-
-    对应 vendor/cordis/src/context.ts:42。属性读取对应 TS 的 Proxy get 陷阱：
-    普通查找失败后路由到服务表（context.ts:16/42 → reflect.ts:133/136）。
-    [教学决策 G6] TS Proxy 同时拦截 get/set；Python 的 __getattr__ 只拦截缺失属性读取，
-    因此服务注册一律走显式 provide()，不用 __setattr__ 魔法，避免内部字段误伤。
-    """
+    """插件执行环境：服务解析、依赖注入、事件派发、生命周期注册四合一。"""
 
     def __init__(self):
         setattr(self, Symbols.services, {})    # 服务表：name → 实例
         setattr(self, Symbols.events, {})      # 监听器表：事件名 → [listener]
         setattr(self, Symbols.dispose, False)  # dispose 标记
-        self._fibers = []      # 全部 fiber（按注册顺序）
-        self._pending = []     # 依赖未满足、等待加载的 fiber
-        self._disposers = []   # 根级 effect 的清理函数
+        self._fibers: list[Fiber] = []
+        self._pending: list[Fiber] = []
+        self._disposers: list[Callable] = []
 
     # ---------- 服务解析 ----------
 
     def __getattr__(self, name):
-        """普通属性查找失败时才调用：一切非内部属性都按服务读取。
-
-        对应 Proxy get 陷阱路由到 ReflectService.get（reflect.ts:133/136）。
-        """
+        """普通属性查找失败时按服务名查服务表。"""
         if name.startswith("_"):
             raise AttributeError(name)
         services = getattr(self, Symbols.services)
@@ -84,9 +66,9 @@ class Context:
         raise ServiceNotFoundError(name)
 
     def provide(self, name, value):
-        """注册服务，返回「注销」disposer（reflect.ts:237-243）。
+        """注册服务，返回注销 disposer。
 
-        注册后触发 service/provide，并结算等待依赖的 fiber。
+        写服务表 → 派发 service/provide → 结算等待依赖的 fiber。
         """
         services = getattr(self, Symbols.services)
         services[name] = value
@@ -101,10 +83,7 @@ class Context:
         return dispose
 
     def _settle_pending(self):
-        """新服务到达后逐个复查 PENDING fiber：满足才加载。
-
-        fiber.ts:249-251 的反面：PENDING + _checkInject() 不满足 → 不加载而等待。
-        """
+        """新服务到达后逐个复查 PENDING fiber：依赖已满足才加载。"""
         while True:
             ready = [f for f in self._pending if f.deps_satisfied()]
             if not ready:
@@ -116,9 +95,9 @@ class Context:
     # ---------- 事件派发 ----------
 
     def on(self, event, listener):
-        """注册监听器，返回 off disposer（events.ts:288-302；r7 裁定）。
+        """注册监听器，返回 off disposer。
 
-        注册本身是 effect：宿主 fiber 卸载时自动注销（events.ts:254 register → fiber.effect）。
+        注册本身是 effect：宿主 fiber 卸载时自动注销。
         """
         listeners = getattr(self, Symbols.events).setdefault(event, [])
 
@@ -131,19 +110,15 @@ class Context:
 
             return off
 
-        return self.effect(setup, label=f"on:{event}")
+        return self.effect(setup)
 
     def emit(self, event, *args):
-        """同步派发：按注册顺序调用，不等返回值（events.ts:194；r7 裁定，:183 是 parallel）。"""
+        """同步派发：按注册顺序调用，不等返回值。"""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             listener(*args)
 
     def serial(self, event, *args):
-        """[教学简化] 简化 serial（约 5 行）：顺序调用，遇 bail 值立即返回。
-
-        真实 serial 顺序 await（events.ts:204-209）；bail 判定：非 None 且非 False
-        （isBailed，events.ts:13）。本章用于 turn-stopping agent/turn-stopping（agent.ts:296）。
-        """
+        """顺序调用，遇 bail 值（非 None 且非 False）立即返回。"""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             result = listener(*args)
             if result is not None and result is not False:
@@ -151,11 +126,7 @@ class Context:
         return None
 
     def waterfall(self, event, value):
-        """[教学简化] 简化 waterfall：把返回值穿下去，返回 None 视为放行。
-
-        真实 waterfall 是中间件式：监听器包裹 next 续体、最外层优先（events.ts:234）。
-        [教学决策 G4] 无监听器时原样返回初始 value。
-        """
+        """把返回值逐个传递：返回 None 放行，非 None 替换当前值。"""
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             result = listener(value)
             if result is not None:
@@ -164,33 +135,27 @@ class Context:
 
     # ---------- 生命周期注册 ----------
 
-    def effect(self, execute, label="anonymous"):
+    def effect(self, execute):
         """注册 effect：立即执行 execute，收集其返回的清理函数。
 
-        清理函数在卸载时逆序执行（fiber.ts:415/418/431）——后注册的先清理。
-        label 参数对齐真实 API，教学版不消费它。
+        清理函数在卸载时逆序执行——后注册的先清理。
         """
         disposer = execute()
         if disposer is None:
-            disposer = lambda: None  # noqa: E731  无清理函数时用 no-op 占位
+            disposer = lambda: None
         if _current_fiber is not None:
-            _current_fiber.disposers.append(disposer)
+            _current_fiber._disposers.append(disposer)
         else:
             self._disposers.append(disposer)
         return disposer
 
     def plugin(self, callback, config=None):
-        """注册插件：函数 / 类 / apply 对象三形态在此归一化，返回本次激活的 Fiber。
-
-        对应 RegistryService（registry.ts:195）plugin 方法（:316）。
-        """
-        return Fiber(self, callback, config)
+        """注册插件：函数 / 类 / apply 对象三形态归一，返回 Fiber。"""
+        body = _normalize(callback, config)
+        return Fiber(self, getattr(callback, "inject", None) or [], body)
 
     def dispose(self):
-        """销毁容器：按注册逆序卸载全部 fiber，再逆序执行根级 effect。
-
-        [教学简化] 真实代码 dispose 异步且带 settle 超时。
-        """
+        """销毁容器：按注册逆序卸载 fiber，再逆序执行根级 effect。"""
         if getattr(self, Symbols.dispose):
             return
         setattr(self, Symbols.dispose, True)
@@ -200,55 +165,52 @@ class Context:
             disposer()
 
 
-class Fiber:
-    """插件的一次激活（fiber.ts:184），跟踪生命周期与全部 effect 清理函数。
+# ---------- 插件三形态归一 ----------
 
-    [教学简化] 状态机简化为 PENDING/ACTIVE/DISPOSED 三态；真实代码为
-    PENDING/LOADING/ACTIVE/FAILED/DISPOSED/UNLOADING 六态，依赖变化时先
-    _unload（逆序执行 disposer）再 _reload（fiber.ts:588-609、646-696）。
-    [教学决策 G8] 本章不实现「变化即重载」，只实现「满足才加载」。
+
+def _normalize(callback, config):
+    """三种插件形态归一化为「接收 ctx 的函数」。"""
+    if isinstance(callback, type):
+        if config is not None:
+            return lambda ctx: callback(ctx, config)
+        return callback
+    apply_ = getattr(callback, "apply", None)
+    if callable(apply_):
+        return apply_
+    return callback
+
+
+class Fiber:
+    """插件的一次激活。
+
+    [教学简化] 态机简化为 PENDING / ACTIVE / DISPOSED 三态；
+    真实 cordis 六态，且支持变化即重载（本章只实现「满足才加载」）。
     """
 
     PENDING = "pending"
     ACTIVE = "active"
     DISPOSED = "disposed"
 
-    def __init__(self, ctx, callback, config=None):
+    def __init__(self, ctx, inject, body):
         self.ctx = ctx
-        self.config = config
+        self.name = getattr(body, "__name__", type(body).__name__)
+        self.inject = inject
         self.state = self.PENDING
-        self.disposers = []
-        self.inject = list(getattr(callback, "inject", None) or [])
-        self._body = self._normalize(callback, config)
+        self._disposers: list[Callable] = []
+        self._body = body
         ctx._fibers.append(self)
-        if self.deps_satisfied():  # 满足才加载（fiber.ts:249-251）
+        if self.deps_satisfied():
             self.activate()
         else:
             ctx._pending.append(self)
 
-    @staticmethod
-    def _normalize(callback, config):
-        """三形态归一：
-
-        类 → 实例化 cls(ctx, config)；apply 对象 → 取其 apply(ctx)；函数 → 原样调用 fn(ctx)。
-        """
-        if isinstance(callback, type):
-            return lambda ctx: callback(ctx, config)
-        apply_ = getattr(callback, "apply", None)
-        if callable(apply_):
-            return lambda ctx: apply_(ctx)
-        return callback
-
     def deps_satisfied(self):
-        """inject「满足才加载」检查：声明的服务全部已提供才加载。
-
-        events 是容器内置能力，不计入外部依赖。
-        """
+        """inject 声明的服务全部已提供才加载。events 不计入。"""
         services = getattr(self.ctx, Symbols.services)
         return all(name in services for name in self.inject if name != "events")
 
     def activate(self):
-        """执行插件体；执行期间的宿主 fiber 指向 self（effect 的收集目标）。"""
+        """执行插件体；期间 _current_fiber 指向 self（effect 收集目标）。"""
         global _current_fiber
         self.state = self.ACTIVE
         parent = _current_fiber
@@ -259,21 +221,20 @@ class Fiber:
             _current_fiber = parent
 
     def dispose(self):
-        """卸载：逆序执行清理函数（fiber.ts:431）。"""
+        """卸载：逆序执行清理函数。"""
         if self.state == self.DISPOSED:
             return
-        for disposer in reversed(self.disposers):
+        for disposer in reversed(self._disposers):
             disposer()
-        self.disposers.clear()
+        self._disposers.clear()
         self.state = self.DISPOSED
 
 
 class Service:
     """服务基类：构造即注册。
 
-    对应 vendor/cordis/src/service.ts:11：构造器 :42-59 调 ctx.reflect.provide（:57）把实例挂到 ctx.<key>
-    （r7 裁定，notes §13 D3）。
-    教学版用 ctx.effect 显式表达「卸载即移除」——注册本身就是可逆效应。
+    对应 vendor/cordis/src/service.ts:11。
+    注册本身是可逆效应——容器销毁时自动从服务表移除。
     """
 
     def __init__(self, ctx, name=None):
@@ -281,4 +242,4 @@ class Service:
         self.service_name = name
         if name is not None:
             dispose = ctx.provide(name, self)
-            ctx.effect(lambda: dispose, label=f"service:{name}")
+            ctx.effect(lambda: dispose)

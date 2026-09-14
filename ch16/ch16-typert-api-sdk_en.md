@@ -462,64 +462,67 @@ The teaching version lists the same 17 codes one by one in `GATEWAY_ERROR_CODES`
 
 The gateway solved Pain 2 and Pain 3: argument validation is done against the descriptor (no hand-written validation), and routing claims by endpoint (no hand-written branches — a new method only needs one more descriptor registered). But so far, calls are still "simulated in-process" — how do we truly cross the process, letting a CLI or another process call in? That is the SDK.
 
-## 6. The SDK: JSON-RPC over stdio
+## 6. The JSON-RPC SDK: Carrying the Gateway Out of the Process (In Brief)
 
-### 6.1 What the SDK Is
+**JSON-RPC**: a lightweight remote-call protocol — a request is a JSON object carrying `method` and `params`, and the response is matched back by `id`. The `sdk` package uses it to expose the host's capabilities to the world outside the child process; the transport layer is line-delimited JSON-RPC 2.0 over stdio (`JsonRpcLineTransport`, `packages/sdk/protocol/src/transport.ts:62`): one JSON object per line — a message with an `id` is a request, one without is a notification. The `request` method (`transport.ts:121`) sends a request and waits for the response matched by `id`, supporting AbortSignal cancellation; a missing handler returns `-32601`, a failing handler returns `-32603`. Source excerpt (TS; `AbortSignal` is a "cancellation signal" object — when `signal.aborted` is true the request is rejected immediately; `randomUUID()` generates the unique request `id` used to match responses):
 
-**SDK**: the `sdk` package (`packages/sdk/src/index.ts`), which packages the host's capabilities as a **JSON-RPC 2.0** service over stdio (JSON-RPC is a text protocol: one line of JSON is one request, and one line of JSON is one response; `jsonrpcVersion = '2.0'`, `index.ts:15`), aimed at CLI tools, web backends, and automation scripts. **stdio**: the process's standard input/output streams — the SDK process and the host process are connected by two pipes, and JSON-RPC messages travel on the pipes.
+```ts
+export class JsonRpcLineTransport implements JsonRpcTransportPeer {
+  ...
+  request(method: string, params: object, signal?: AbortSignal): Promise<unknown> {
+    const id = `req_${randomUUID().replaceAll('-', '')}`
+    const message = { jsonrpc: '2.0', id, method, params }
+    return new Promise((resolve, reject) => {
+      let detach = (): void => {}
+      if (signal !== undefined) {
+        if (signal.aborted) { reject(abortError(signal.reason)); return }
+        const onAbort = (): void => { this.pending.delete(id); reject(abortError(signal.reason)) }
+        // ...
+      }
+      // ...
+    })
+  }
+}
+```
 
-The SDK's internal structure is three layers: `SdkServer` (JSON-RPC server, `index.ts:29`) → `SdkRuntime` (runtime, `index.ts:122`) → `SdkHostBridge` (connection to the host, `index.ts:195`). The wire protocol is defined in `packages/sdk/src/types.ts:22-37` (`SdkWireRequest` / `SdkWireResponse`), and the method list in `packages/sdk/src/methods.ts:11` (`SDK_METHODS`, 10 in total: `version`, `status`, `session.start`, `session.stop`, `session.list`, `session.history`, `session.send`, `session.interrupt`, `agent.list`, `agent.select`).
-
-The teaching version keeps the three-layer skeleton (`ch16/code/sdk.py`), with the transport replaced by in-process function calls:
+The teaching version's `JsonRpcLineTransport` (`ch16/code/sdk.py`) simulates the stdio pipe pair with two in-process objects, keeping the protocol's three essentials: line framing, id matching, stable error codes. The receiving side's dispatch logic:
 
 ```python
-# ---------- Three-layer skeleton: SdkServer -> SdkRuntime -> SdkHostBridge ----------
+    def send_line(self, line):
+        """Receive one JSON line from the peer and dispatch by shape.
 
-class SdkServer:
-    """JSON-RPC 2.0 server ↔ SdkServer (index.ts:29).
-
-    [Teaching simplification] The real server reads JSON-RPC lines from stdio and writes
-    responses back to stdio; the teaching version replaces the transport with in-process
-    function calls, keeping the three-layer skeleton and method names.
-    """
-
-    def __init__(self, runtime):
-        self._runtime = runtime
-
-    def handle(self, line):
-        """Parse one JSON-RPC request line and return one response line (JSON text)."""
-        request = json.loads(line)
-        method = request.get("method")
-        if method not in SDK_METHODS:
-            return self._error(request.get("id"), -32601, f"method not found: {method}")
+        No method → response (parked in _pending by id);
+        method + id → request; method without id → notification.
+        """
+        message = json.loads(line)
+        if "method" not in message:
+            self._pending[message["id"]] = message
+        elif "id" in message:
+            self._handle_request(message)
+        else:
+            handler = self._notification_handlers.get(message["method"])
+            if handler is not None:
+                handler(message.get("params", {}))
 ```
 
-`handle` first validates the method name (unknown methods return `-32601`, JSON-RPC's standard "method not found" code), then dispatches to the runtime; the runtime holds the bridge and routes by method name (`SdkRuntime.handle` in `sdk.py`); the bridge holds the host's `RpcConnection` and turns SDK methods into `/api` calls (`SdkHostBridge.call` in `sdk.py`).
+[Teaching simplification] The real transport is asynchronous stdio I/O and `request` supports AbortSignal; the teaching version is an in-process synchronous call, with no timeout or cancellation.
 
-### 6.2 One Call That Crosses the Process
+Each end of the protocol has one protagonist. **The server** `HarnessSdkJsonRpcServer` (`packages/sdk/server/src/server.ts:53`) is a Cordis plugin exposing three requests (`HarnessSdkRequestMap`, `packages/sdk/protocol/src/types.ts:101`): `initialize` (`server.ts:111`, mounts the fallback adapter), `session.prompt` (:132), `shutdown` (:150, graceful exit), plus 4 notifications (`HarnessSdkNotificationMap`, `types.ts:93`). **The client** `HarnessClient` (`packages/sdk/client/src/client.ts:184`) spawns the child process on `start()` (`client.ts:203`), and `destroy()` winds down via the **destruction ladder**: EOF → SIGTERM → SIGKILL — first close the input stream and wait for the child to exit on its own; if it doesn't, send the termination signal; only if it still doesn't, force-kill — each level more forceful than the last. The high-level API is `DeepSeekHarness` (`packages/sdk/client/src/api.ts:22`, lazily starts the child process) and `HarnessSession` (`api.ts:132`); `finalResponse` (`api.ts:236`) aggregates the final response.
 
-The client's entry point is `createSdk` (`index.ts:416`), which returns a `DeepSeekSdk` (`types.ts:133`): `sessions` (session operations), `agents` (agent operations), `close`. The teaching version exposes `sessions.send` and `close`; `send` is exactly the chain "SDK method → JSON-RPC → bridge → gateway → business service."
-
-`main.py` segment 6 (full output in §8):
+`main.py` segment 6 strings the three together (full output in §8):
 
 ```text
-== Segment 6: SDK — JSON-RPC over stdio ==
-request line: {"jsonrpc": "2.0", "id": 1, "method": "session.send", "params": {"text": "summarize this chapter"}}
-response line: {"jsonrpc": "2.0", "id": 1, "result": {"agent": "writer", "summary": "writer: summarize this chapter"}}
-unknown method -> {"jsonrpc": "2.0", "id": 2, "error": {"code": -32601, "message": "method not found: session.pause"}}
+== Segment 6: JSON-RPC SDK — line framing + three requests + notifications ==
+session.prompt received chunks: ['echo: cross-process call', '(done)']
+finalResponse: echo: cross-process call (done)
+Destruction ladder: ['EOF'] (graceful exit, no escalation)
 ```
 
-The request line and the response line are both single-line JSON — this is the shape of JSON-RPC 2.0 on the wire; the unknown method `session.pause` is rejected with the standard `-32601`. [Teaching simplification] The real transport is stdio pipes; the teaching version uses in-process calls, and the wire format is kept identical.
+`start()` completes `initialize` automatically; `session.prompt` first receives streaming chunk notifications, then `finalResponse` aggregates them; after `shutdown` the child process exits gracefully, and the destruction ladder stops at the first rung `EOF` without escalating to SIGTERM/SIGKILL. [Teaching decision] The teaching version does not spawn a real child process — it simulates with in-process pipes; the four names in `SERVER_NOTIFICATIONS` are teaching placeholders (the notes did not enumerate the real notification names). This JSON-RPC protocol line continues into Chapter 17: the Python SDK drives the same protocol for a runtime end-to-end walk (see Chapter 17).
 
-### 6.3 The SDK Does Not Define New Contracts
+## 7. ACP: The Automation Bridge (In Brief)
 
-A point worth stressing: the SDK's `session.send` ultimately still goes through the gateway's `invoke`, and validation still relies on the registry's descriptors — **the SDK does not define new contracts; it is merely another transport form of the gateway's capabilities**. This is why the overall map in §2 draws SDK and ACP as two parallel exits of the gateway.
-
-## 7. ACP: The Automation Bridge
-
-**ACP (automation bridge)**: the `acp` package, which exposes the harness to automation clients (such as IDE plugins) via the **Agent Client Protocol**. **ACP (Agent Client Protocol)**: a JSON-RPC protocol for automation clients and agents — the client sends instructions, the agent reports progress and results; the real implementation is `packages/acp/src/acp-agent.ts:32` (`HarnessAcpAgent`, built on the `@zed-industries/agent-client-protocol` library).
-
-Its relationship to the SDK: both are JSON-RPC, both go through the gateway, and both do not define new contracts. The differences lie in the audience and the protocol details — the SDK faces general external callers (CLI / web / scripts) with a fixed list of 10 methods; ACP faces automation clients with the Agent Client Protocol's session/turn model. [Teaching simplification] The teaching version does not implement ACP; it is listed here only to complete the map.
+**ACP (Agent Client Protocol)**: the communication protocol between editors/automation tools and agents. The `acp` package bridges the harness's agents into an ACP server: `apply()` (`packages/acp/acp/src/index.ts:105`) mounts the automation ACP server, `makeAgent` (:231) wraps a harness agent into an ACP agent; `AgentSideConnection` implements the ACP side's `initialize` / `authenticate` / `newSession` / `prompt` / `cancel`. On the lifecycle side, `quiesce` (:356) handles quiet exit — in the continuable-subagent scenario it first waits for child agents to drain (in-flight work). Between the protocol and harness semantics sits a codec translation layer: `turnEndToStopReason` (`packages/acp/acp/src/codec.ts:14`) maps turn-end reasons to ACP stop reasons; `acpPromptToText` (:43) and `promptHasUnsupportedContent` (:64) handle prompt content. The teaching version does not implement ACP — it is another transport form at the same layer as the SDK, and its mechanism essentials (contract translation + lifecycle wind-down) are isomorphic to §6.
 
 ## 8. Complete Run Output
 
@@ -554,33 +557,44 @@ unknown identity -> lookup-not-found: identity agent:agent-404 resolves to no ho
 calling /api/diagnostics/ping -> {'pong': 'hello'}
 unmarked method rejected -> method-unavailable: diagnostics/internal is not marked @remote
 
-== Segment 6: SDK — JSON-RPC over stdio ==
-request line: {"jsonrpc": "2.0", "id": 1, "method": "session.send", "params": {"text": "summarize this chapter"}}
-response line: {"jsonrpc": "2.0", "id": 1, "result": {"agent": "writer", "summary": "writer: summarize this chapter"}}
-unknown method -> {"jsonrpc": "2.0", "id": 2, "error": {"code": -32601, "message": "method not found: session.pause"}}
+== Segment 6: JSON-RPC SDK — line framing + three requests + notifications ==
+session.prompt received chunks: ['echo: cross-process call', '(done)']
+finalResponse: echo: cross-process call(done)
+Destruction ladder: ['EOF'] (graceful exit, no escalation)
 ```
 
-Contrast with the opening epigraph: segments 3/4 show "only contracts cross the boundary, not objects" — the misspelled parameter name is stopped at the boundary, and only the identity `agent-1` travels on the wire; segments 1/2 show "types are compiled into a graph, and calls are validated against the graph" — the generator compiles the contract into a type graph, and the gateway validates against the registry.
+Contrast with the opening epigraph: segment 3's "misspelled/extra parameters stopped at the boundary by `arguments-invalid`" delivers on "types are compiled into a graph, and calls are validated against the graph"; segment 4's "only the identity `'agent-1'` travels on the wire; the host object never crosses" delivers on "what crosses the process is the contract, not the object".
 
-## 9. Summary and Preview
+## 9. Source Mapping
 
-This chapter built one cross-process typed RPC runtime: **typert** compiles method contracts into a type graph and invocation descriptors (the generator), and the **registry** holds them atomically at runtime (commit + disposer rollback); the **gateway** intercepts `/api`, validates arguments, swaps lookup identities, and returns stable error codes; the **SDK** and **ACP** are two transport forms of the same capability. Chapter 17 is the closing chapter of the whole book: workflow, ralph, and the Python end-to-end — tying the mechanisms of all chapters together into one complete run.
+| Mechanism in this chapter | Corresponding source location | Teaching-version difference in brief |
+|------|------|------|
+| Type graph & generator | `packages/typert/generator/src/model.ts:350/:430` (TypeNodeModel/TypeGraph), `workspace.ts:20/:33/:46/:68` (generator four steps) | The teaching version uses `inspect` to reflect Python signatures instead of compiler analysis; TypeNode keeps only primitive/object (real: 18 variants) |
+| Invocation descriptor & codec | `packages/typert/protocol/src/types.ts:172-211` (InvocationDescriptor), `:139` (TypertCodec) | The teaching version keeps 6 of the 11 fields; implementation/invocation/cancellation etc. not implemented |
+| Runtime registry | `packages/typert/registry/src/service.ts:446` (TypertRegistry), `:499` (register), `:48/:67` (two key kinds) | The teaching version keeps only the local DescriptorStore; remote/RemoteStore/ContextStore not implemented |
+| Registry contract | `packages/typert/protocol/src/types.ts:479-491` (TypertRegistryContract + declare module) | The teaching gateway consumes the same contract shape via `ctx.typert` (get/has_seen) |
+| RPC gateway | `packages/api/gateway/src/index.ts:90/:104-111/:145/:224/:237/:359/:407/:586/:640`, `types.ts:19-36` (17 error codes) | The teaching version simulates HTTP/JSON-RPC interception with an in-process `RpcConnection`; SRC reflection uses `inspect.signature` instead of `Function.prototype.toString` |
+| lookup provider | `packages/typert/registry/src/service.ts:216` (LookupStore), `packages/api/remotes/src/agent-lookup.ts:121`, `remote-events.ts:17-29` (11 forwardable events) | Teaching lookup is held by the gateway; only the agent identity kind is implemented |
+| JSON-RPC SDK | `packages/sdk/protocol/src/transport.ts:62/:121`, `types.ts:101/:93`, `server.ts:53`, `client.ts:184/:203`, `api.ts:22/:132/:236` | The teaching version does not spawn a child process — in-process pipes simulate stdio; the destruction ladder keeps only "stop escalating once the peer has exited" |
+| ACP bridge | `packages/acp/acp/src/index.ts:105/:231/:356`, `codec.ts:14/:43/:64` | Not implemented in the teaching version; described in prose only |
 
-## Appendix: Key Concepts Cheat Sheet
+## 10. Summary and Preview
+
+This chapter extended Chapter 5's seam "consumer" role out of the process: **typert** compiles method contracts into a carrier-agnostic type graph (generator → InvocationDescriptor), **TypertRegistry** holds these contracts with atomic registration (effect commits, disposer rolls back), the **RPC gateway** validates and dispatches every `/api` call against the contracts (strict / src-json two paths, lookup swaps identities back to host objects, 17 stable error codes), and the **SDK** and **ACP** then carry these capabilities out of the process via JSON-RPC stdio and the Agent Client Protocol respectively. Chapter 17 will use the Python SDK to drive the same JSON-RPC protocol for a complete runtime end-to-end walk.
+
+## 11. Appendix: Key Concepts Cheat Sheet
 
 | Concept | One-line explanation | Depends on |
 |------|-----------|------|
-| **type graph** | The carrier-agnostic intermediate model produced by type analysis (`TypeGraph` + `TypeNodeModel`) | — (bottom layer) |
-| **InvocationDescriptor** | The carrier-agnostic description of one exported method | type graph |
-| **typertKey / typertEndpoint** | Schema identifier `<pkg>#<name>` / endpoint identifier `<namespace>/<method>` | type graph |
-| **contribution** | Everything a package submits to the registry in one go | InvocationDescriptor |
-| **registry** | The runtime holder of the type graph; atomic registration + disposer rollback | contribution |
-| **disposer** | The effect's cleanup function; calling it revokes this registration | registry |
-| **lookup provider** | Swaps the identity field back to the host object | registry |
-| **gateway** | Intercepts `/api`; validates against descriptors and dispatches | registry |
-| **wire** | The serialization transmission line between two processes; only JSON text travels | gateway |
-| **strict / src-json** | Two codec policies: schema validation / JSON-safety only | gateway |
-| **SDK** | JSON-RPC 2.0 over stdio, 10 methods | gateway |
-| **ACP** | The Agent Client Protocol automation bridge | gateway |
+| **type graph** | The carrier-agnostic intermediate model produced by type analysis (TypeGraph + TypeNode) | — (bottom layer) |
+| **InvocationDescriptor** | The carrier-agnostic description of one exported method (service/namespace/method/parameters/result) | type graph |
+| **typertKey / typertEndpoint** | Schema identifier `<pkg>#<name>` / callable endpoint `<namespace>/<method>` | — (bottom layer) |
+| **TypertCodec** | Result codec policy: strict (validate against schema) / src-json (JSON-safety check only) | type graph |
+| **TypertRegistry** | Runtime holder of the type graph; atomic registration (effect commits, disposer rolls back) | InvocationDescriptor |
+| **registry contract** | TypertRegistryContract: consumers depend only on the contract interface, not the typert package | TypertRegistry |
+| **RPC gateway** | TypertGatewayService: intercepts /api, validates and dispatches calls against descriptors | registry contract |
+| **lookup provider** | Swaps the identity field on the wire back to the host object | RPC gateway |
+| **JSON-RPC SDK** | Line-delimited JSON-RPC 2.0 over stdio: line transport + three requests + destruction ladder | RPC gateway |
+| **ACP** | Agent Client Protocol automation bridge: contract translation + lifecycle wind-down | RPC gateway |
 
-> Layering: type graph → InvocationDescriptor → contribution → registry → gateway → SDK/ACP. Mapping between Python teaching symbols and source symbols: `generate_contribution`↔`WorkspaceTypertGenerator`, `TypertRegistry.register`↔`register (service.ts:499)`, `TypertGatewayService.invoke`↔`invoke (index.ts:145)`, `RpcConnection`↔`connection.rpc.intercept`, `SdkServer/SdkRuntime/SdkHostBridge`↔the SDK's three layers of the same names.
+> Layering: bottom layer is the type graph and the two key kinds → middle layer is descriptors, codec, registry and registry contract → top layer is the gateway and its two transport forms (SDK / ACP). Mapping between Python teaching symbols and source symbols: `generate_contribution`↔`WorkspaceTypertGenerator.generate`, `TypertRegistry`↔`TypertRegistry`, `typert_key`/`typert_endpoint`↔`typertKey`/`typertEndpoint`, `TypertGatewayService`↔`TypertGatewayService`, `RpcConnection`↔`connection.rpc`, `LookupStore`↔`LookupStore`, `JsonRpcLineTransport`↔`JsonRpcLineTransport`, `HarnessClient`↔`HarnessClient`, `remote`↔`@Remote`.

@@ -152,7 +152,7 @@ class ToolRuntime(Service):
             self._layer.tools.pop(name, None)
             self.ctx.emit("tools/change", {"name": name, "op": "remove"})
 
-        return self.ctx.effect(lambda: dispose, label=f"tool:{name}")
+        return self.ctx.effect(lambda: dispose)
 
     def guard(self, guard_fn):
         """注册单调守卫：只能拒绝、不能放行（index.ts:1110）。"""

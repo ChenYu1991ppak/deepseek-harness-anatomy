@@ -28,10 +28,7 @@ from cordis import Service  # noqa: E402
 
 __all__ = [
     "AgentLoop",
-    "Inbox",
     "LlmStub",
-    "PromptAssembly",
-    "PromptSection",
     "ReactLoopAgent",
     "Session",
     "SessionEvent",
@@ -109,7 +106,7 @@ class LlmStub:
     [教学决策 G7] 真实版是 async 流；教学版用同步生成器，机制语义不变。
     """
 
-    def stream(self, messages, system_prompt=None, **options):
+    def stream(self, messages, **options):
         user_text = messages[-1]["content"] if messages else ""
         for piece in (
             f"收到问题「{user_text}」。",
@@ -160,7 +157,7 @@ class SystemPromptService(Service):
             self._sections.append(entry)
             return lambda: self._sections.remove(entry)
 
-        return self.ctx.effect(setup, label=f"section:{name}")
+        return self.ctx.effect(setup)
 
     def assemble(self):
         """按 order 升序组装，对应 assemble（index.ts:467）。

@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from llm_runtime import LlmAdapter
 
-__all__ = ["PiAiStubAdapter", "to_stream_chunks", "map_stop_reason"]
+__all__ = [
+    "PiAiStubAdapter",
+]
 
 # [教学桩] 模拟 Pi.AI SDK streamSimple 输出的事件序列。
 FAKE_SDK_EVENTS = (

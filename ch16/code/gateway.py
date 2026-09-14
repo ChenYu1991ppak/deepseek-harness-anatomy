@@ -25,7 +25,7 @@ from typert import (  # noqa: E402
 )
 
 __all__ = [
-    "GATEWAY_ERROR_CODES", "GatewayError", "LookupStore", "RpcConnection",
+    "GATEWAY_ERROR_CODES", "GatewayError", "RpcConnection",
     "TypertGatewayService", "remote",
 ]
 

@@ -15,9 +15,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 __all__ = [
-    "CredentialProvider",
     "InMemoryCredentialProvider",
-    "SettingsProvider",
     "InMemorySettingsProvider",
 ]
 

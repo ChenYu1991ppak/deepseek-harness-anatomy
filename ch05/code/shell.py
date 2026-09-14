@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import sys
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 # 复用第 1 章：Service 构造即注册（cordis.py:271–284）。

@@ -142,7 +142,7 @@ class SubagentRegistry:
             self._providers.pop(name, None)
 
         # effect 立即执行 lambda 并收集其返回的清理函数（cordis.py:167）：卸载即注销
-        return self.ctx.effect(lambda: unregister, label=f"subagent-provider:{name}")
+        return self.ctx.effect(lambda: unregister)
 
     def expect_provider(self, name):
         """按名取 provider，缺失抛 UNKNOWN_PROVIDER（expectProvider，index.ts:449）。"""

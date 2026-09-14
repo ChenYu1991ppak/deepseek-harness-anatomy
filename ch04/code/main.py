@@ -20,7 +20,7 @@ for _p in (_HERE, _CH02, _CH01):
         sys.path.insert(0, _p)
 
 from cordis import Context  # noqa: E402
-from agent_loop import AgentLoop, LlmStub, Sessions, SystemPromptService  # noqa: E402
+from agent_loop import LlmStub, Sessions, SystemPromptService  # noqa: E402
 from tools import (  # noqa: E402
     PostToolDecision,
     PreToolDecision,

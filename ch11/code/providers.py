@@ -12,7 +12,7 @@ spawn 与 fork 的差异只有一处：fork 先把父会话的「已完成回合
 """
 from __future__ import annotations
 
-from subagent_runtime import (  # noqa: E402  (本章定义层)
+from subagent_runtime import (
     ALL_CAPABILITIES,
     SubagentProvider,
     completed_turn_prefix,

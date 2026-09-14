@@ -8,7 +8,10 @@
 """
 from __future__ import annotations
 
-__all__ = ["ROLE_OVERHEAD", "estimate_content", "estimate_message", "TokenMeter"]
+__all__ = [
+    "estimate_message",
+    "TokenMeter",
+]
 
 ROLE_OVERHEAD = 4  # 每条消息的角色固定开销 token（estimate.ts:19）
 
