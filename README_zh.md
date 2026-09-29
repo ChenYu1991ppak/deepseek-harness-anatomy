@@ -20,7 +20,7 @@ python3 ch02/code/main.py
 
 然后打开[第 2 章](ch02/ch02-agent-loop_zh.md)，沿下面的路线图逐章加厚：
 
-![章节路线图](assets/anatomy-chapters.html)
+![章节路线图](assets/anatomy-chapters_zh.png)
 
 ## 谁该读这个教程
 
@@ -28,31 +28,6 @@ python3 ch02/code/main.py
 - **你看了 dsh 源码但没看懂**——这份教程提供 17 章递进地图，每章末尾附 `file:line` 源码对照表
 - **你是 Python 开发者**，不想啃 TypeScript 源码——每章附带仅用标准库的可运行 Python 教学代码
 - **你在教或写 agent 架构相关内容**——每章都是独立模块，附可运行 demo，可直接引用或改编
-
-```mermaid
-flowchart LR
-  subgraph S1["打地基"]
-    direction LR
-    C01["1 · Cordis 内核"] --> C02["2 · 最小 agent-loop"] --> C03["3 · session 持久化"]
-  end
-  subgraph S2["能力加厚"]
-    direction LR
-    C04["4 · tools 管线"] --> C05["5 · capability seam"] --> C06["6 · 执行世界"] --> C07["7 · LLM 适配"] --> C08["8 · system-prompt"]
-  end
-  subgraph S3["进阶机制"]
-    direction LR
-    C09["9 · scope"] --> C10["10 · 上下文压缩"] --> C11["11 · subagent"] --> C12["12 · skill"]
-  end
-  subgraph S4["治理与组合"]
-    direction LR
-    C13["13 · web 与 lsp"] --> C14["14 · 交互与权限"] --> C15["15 · preset / bundle"]
-  end
-  subgraph S5["端到端"]
-    direction LR
-    C16["16 · 跨进程 RPC"] --> C17["17 · workflow 端到端"]
-  end
-  S1 --> S2 --> S3 --> S4 --> S5
-```
 
 ## 这个教程是什么
 

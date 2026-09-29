@@ -1,0 +1,457 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DeepSeek Harness (dsh) — 17-Chapter Progressive Roadmap",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      990,
+      830
+    ]
+  },
+  "components": [
+    {
+      "id": "ch01",
+      "type": "backend",
+      "label": "Ch1 · Cordis Kernel",
+      "sublabel": "Plugin container",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch02",
+      "type": "backend",
+      "label": "Ch2 · Minimal agent-loop",
+      "sublabel": "Minimal closed loop",
+      "pos": [
+        370,
+        40
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch03",
+      "type": "database",
+      "label": "Ch3 · Session Persistence",
+      "sublabel": "Event log",
+      "pos": [
+        700,
+        40
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch04",
+      "type": "backend",
+      "label": "Ch4 · Tools Pipeline",
+      "sublabel": "Registry + guard",
+      "pos": [
+        40,
+        150
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch05",
+      "type": "backend",
+      "label": "Ch5 · Capability Seam",
+      "sublabel": "Tri-role pattern",
+      "pos": [
+        370,
+        150
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch06",
+      "type": "backend",
+      "label": "Ch6 · Execution World",
+      "sublabel": "subprocess/shell/fs",
+      "pos": [
+        700,
+        150
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch07",
+      "type": "backend",
+      "label": "Ch7 · LLM Adaptation",
+      "sublabel": "Adapter seam",
+      "pos": [
+        700,
+        240
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch08",
+      "type": "backend",
+      "label": "Ch8 · System Prompt",
+      "sublabel": "Context injection",
+      "pos": [
+        370,
+        240
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch09",
+      "type": "backend",
+      "label": "Ch9 · Scope",
+      "sublabel": "Scoped registration",
+      "pos": [
+        40,
+        350
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch10",
+      "type": "backend",
+      "label": "Ch10 · Compaction",
+      "sublabel": "prune / summarize",
+      "pos": [
+        370,
+        350
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch11",
+      "type": "backend",
+      "label": "Ch11 · Subagent",
+      "sublabel": "Delegation",
+      "pos": [
+        700,
+        350
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch12",
+      "type": "backend",
+      "label": "Ch12 · Skill",
+      "sublabel": "Rank ladder",
+      "pos": [
+        700,
+        440
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch13",
+      "type": "backend",
+      "label": "Ch13 · Web & LSP",
+      "sublabel": "Retrieval + code",
+      "pos": [
+        700,
+        550
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch14",
+      "type": "security",
+      "label": "Ch14 · Interaction & Permission",
+      "sublabel": "Human-in-the-loop guard",
+      "pos": [
+        370,
+        550
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch15",
+      "type": "backend",
+      "label": "Ch15 · Preset / Bundle",
+      "sublabel": "Configuration compose",
+      "pos": [
+        40,
+        550
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch16",
+      "type": "backend",
+      "label": "Ch16 · Cross-process RPC",
+      "sublabel": "typert/api/sdk",
+      "pos": [
+        40,
+        660
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch17",
+      "type": "backend",
+      "label": "Ch17 · Workflow E2E",
+      "sublabel": "Ralph loop",
+      "pos": [
+        370,
+        660
+      ],
+      "size": [
+        200,
+        56
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Foundation · ch1–3",
+      "wraps": [
+        "ch01",
+        "ch02",
+        "ch03"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Capability build-up · ch4–8",
+      "wraps": [
+        "ch04",
+        "ch05",
+        "ch06",
+        "ch07",
+        "ch08"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Advanced mechanisms · ch9–12",
+      "wraps": [
+        "ch09",
+        "ch10",
+        "ch11",
+        "ch12"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Governance & composition · ch13–15",
+      "wraps": [
+        "ch13",
+        "ch14",
+        "ch15"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "End-to-end · ch16–17",
+      "wraps": [
+        "ch16",
+        "ch17"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "p01-02",
+      "from": "ch01",
+      "to": "ch02"
+    },
+    {
+      "id": "p02-03",
+      "from": "ch02",
+      "to": "ch03"
+    },
+    {
+      "id": "p03-04",
+      "from": "ch03",
+      "to": "ch04",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "p04-05",
+      "from": "ch04",
+      "to": "ch05"
+    },
+    {
+      "id": "p05-06",
+      "from": "ch05",
+      "to": "ch06"
+    },
+    {
+      "id": "p06-07",
+      "from": "ch06",
+      "to": "ch07"
+    },
+    {
+      "id": "p07-08",
+      "from": "ch07",
+      "to": "ch08"
+    },
+    {
+      "id": "p08-09",
+      "from": "ch08",
+      "to": "ch09",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "p09-10",
+      "from": "ch09",
+      "to": "ch10"
+    },
+    {
+      "id": "p10-11",
+      "from": "ch10",
+      "to": "ch11"
+    },
+    {
+      "id": "p11-12",
+      "from": "ch11",
+      "to": "ch12"
+    },
+    {
+      "id": "p12-13",
+      "from": "ch12",
+      "to": "ch13"
+    },
+    {
+      "id": "p13-14",
+      "from": "ch13",
+      "to": "ch14"
+    },
+    {
+      "id": "p14-15",
+      "from": "ch14",
+      "to": "ch15"
+    },
+    {
+      "id": "p15-16",
+      "from": "ch15",
+      "to": "ch16"
+    },
+    {
+      "id": "p16-17",
+      "from": "ch16",
+      "to": "ch17"
+    },
+    {
+      "id": "x07-10",
+      "from": "ch07",
+      "to": "ch10",
+      "label": "reuses token metering",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          800,
+          323
+        ],
+        [
+          470,
+          323
+        ]
+      ],
+      "labelAt": [
+        635,
+        323
+      ]
+    },
+    {
+      "id": "x09-12",
+      "from": "ch09",
+      "to": "ch12",
+      "label": "reuses ScopedLayers",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left",
+      "via": [
+        [
+          140,
+          468
+        ]
+      ],
+      "labelAt": [
+        420,
+        468
+      ]
+    },
+    {
+      "id": "x02-11",
+      "from": "ch02",
+      "to": "ch11",
+      "label": "reuses AgentLoop.create",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "right",
+      "via": [
+        [
+          470,
+          20
+        ],
+        [
+          920,
+          20
+        ],
+        [
+          920,
+          378
+        ]
+      ],
+      "labelAt": [
+        700,
+        20
+      ]
+    }
+  ]
+}

@@ -20,7 +20,7 @@ No dependencies, no API keys — Python 3 standard library only. You'll see one 
 
 Then open [Chapter 2](ch02/ch02-agent-loop_en.md) and thicken the loop chapter by chapter along the roadmap:
 
-![Chapter roadmap](assets/anatomy-chapters.html)
+![Chapter roadmap](assets/anatomy-chapters_en.png)
 
 ## Who Should Read This
 
@@ -28,31 +28,6 @@ Then open [Chapter 2](ch02/ch02-agent-loop_en.md) and thicken the loop chapter b
 - **You read the dsh source but couldn't get a grip** — this tutorial provides a 17-chapter progressive map with `file:line` source references
 - **You're a Python developer** who doesn't want to read TypeScript source — every chapter has runnable Python teaching code (standard library only)
 - **You teach or write about agent architecture** — each chapter is a self-contained module with runnable demos, ready to be cited or adapted
-
-```mermaid
-flowchart LR
-  subgraph S1["Foundation"]
-    direction LR
-    C01["1 · Cordis kernel"] --> C02["2 · minimal agent-loop"] --> C03["3 · session persistence"]
-  end
-  subgraph S2["Capability build-up"]
-    direction LR
-    C04["4 · tools pipeline"] --> C05["5 · capability seam"] --> C06["6 · execution world"] --> C07["7 · LLM adaptation"] --> C08["8 · system-prompt"]
-  end
-  subgraph S3["Advanced mechanisms"]
-    direction LR
-    C09["9 · scope"] --> C10["10 · compaction"] --> C11["11 · subagent"] --> C12["12 · skill"]
-  end
-  subgraph S4["Governance & composition"]
-    direction LR
-    C13["13 · web & lsp"] --> C14["14 · interaction & permission"] --> C15["15 · preset / bundle"]
-  end
-  subgraph S5["End-to-end"]
-    direction LR
-    C16["16 · cross-process RPC"] --> C17["17 · workflow e2e"]
-  end
-  S1 --> S2 --> S3 --> S4 --> S5
-```
 
 ## What This Tutorial Is
 
