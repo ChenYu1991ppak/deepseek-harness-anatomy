@@ -2,19 +2,30 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "dsh 微观机制：seam 三角色与三种形态",
+    "title": "dsh 微观机制：seam 三角色与三种形态（图 1「能力 seam 层 + Cordis 内核」的展开）",
     "locale": "zh-CN",
     "quality_profile": "showcase",
     "viewBox": [
       1000,
       560
     ],
-    "output": "dsh-overview-3-seams_zh.html"
+    "output": "dsh-overview-3-seams_zh.html",
+    "legend": {
+      "mode": "all",
+      "entries": {
+        "database": {
+          "label": "能力 seam 层（图 1）"
+        },
+        "external": {
+          "label": "Cordis 内核（图 1）"
+        }
+      }
+    }
   },
   "components": [
     {
       "id": "f1",
-      "type": "backend",
+      "type": "database",
       "label": "方法调用式",
       "sublabel": "shell / llm / tools 执行器：契约带方法面",
       "pos": [
@@ -28,7 +39,7 @@
     },
     {
       "id": "f2",
-      "type": "backend",
+      "type": "database",
       "label": "整包替换式",
       "sublabel": "ssh 三 provider：fs/subprocess/sandbox 全换",
       "pos": [
@@ -42,7 +53,7 @@
     },
     {
       "id": "f3",
-      "type": "backend",
+      "type": "database",
       "label": "空定义式",
       "sublabel": "单槽排他（computer/browser）· ctx.otel：只占位",
       "pos": [
@@ -56,7 +67,7 @@
     },
     {
       "id": "r1",
-      "type": "backend",
+      "type": "database",
       "label": "Definition（契约）",
       "sublabel": "服务合同；可以为空",
       "pos": [
@@ -70,7 +81,7 @@
     },
     {
       "id": "r2",
-      "type": "backend",
+      "type": "database",
       "label": "Provider（实现）",
       "sublabel": "注册即 effect；可整包换",
       "pos": [
@@ -84,7 +95,7 @@
     },
     {
       "id": "r3",
-      "type": "backend",
+      "type": "database",
       "label": "Consumer（消费）",
       "sublabel": "ctx.<名字> 按名解析契约",
       "pos": [
@@ -98,7 +109,7 @@
     },
     {
       "id": "k1",
-      "type": "backend",
+      "type": "external",
       "label": "Cordis 内核",
       "sublabel": "ctx 两张表 · Service 构造即注册 · effect 可逆 · emit/serial/waterfall",
       "pos": [

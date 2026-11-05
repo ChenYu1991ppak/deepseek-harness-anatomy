@@ -64,15 +64,15 @@ python3 ch02/code/main.py
 
 ![dsh 宏观分层](assets/dsh-overview-1-layers_zh.png)
 
-*图 1 · 宏观分层*：从入口到 Cordis 内核共五层，逐层拼装；横切面（遥测通道、typert 网关）挂在核心骨架侧旁。
+*图 1 · 宏观分层*：从入口到 Cordis 内核共五层，逐层拼装；横切面（遥测通道、typert 网关）挂在核心骨架侧旁。**每层一个颜色，该配色贯穿图 2、图 3**；核心骨架与能力 seam 层的展开见后两图。
 
 ![dsh 一轮 turn 的主链](assets/dsh-overview-2-turn_zh.png)
 
-*图 2 · 一轮 turn 的主链*：入口 → boot 组合 → agent-loop → 每轮装配 → 模型调用 → tools 管线 → 事件落盘的完整路径；compaction 与遥测是横切消费者，虚线为下一轮回读。
+*图 2 · 一轮 turn 的主链（图 1「核心骨架」的展开）*：入口 → boot 组合 → agent-loop → 每轮装配 → 模型调用 → tools 管线 → 事件落盘的完整路径；**节点颜色 = 它在图 1 的所属层**（图例回指）；compaction 与遥测是横切消费者，虚线为下一轮回读。
 
 ![dsh seam 三角色与三种形态](assets/dsh-overview-3-seams_zh.png)
 
-*图 3 · seam 三角色与三种形态*：Definition / Provider / Consumer 都活在 ctx 上；Provider 的注册形态分方法调用式、整包替换式、空定义式三种。
+*图 3 · seam 三角色与三种形态（图 1「能力 seam 层 + Cordis 内核」的展开）*：Definition / Provider / Consumer 都活在 ctx 上；Provider 的注册形态分方法调用式、整包替换式、空定义式三种；颜色同图 1。
 
 四条核心设计思想贯穿全教程：**一切皆插件，没有特权内核**；**agent = model + harness**；**注册即效应**（安装可逆回滚）；**seam 三角色**（换一个 provider 即换整体行为）。
 

@@ -7,14 +7,37 @@
     "quality_profile": "showcase",
     "viewBox": [
       940,
-      660
+      760
     ],
-    "output": "dsh-overview-1-layers_en.html"
+    "output": "dsh-overview-1-layers_en.html",
+    "legend": {
+      "mode": "all",
+      "entries": {
+        "backend": {
+          "label": "Core skeleton (Fig. 1)"
+        },
+        "cloud": {
+          "label": "Composition layer (Fig. 1)"
+        },
+        "database": {
+          "label": "Capability seam layer (Fig. 1)"
+        },
+        "external": {
+          "label": "Cordis kernel (Fig. 1)"
+        },
+        "frontend": {
+          "label": "Entry layer (Fig. 1)"
+        },
+        "security": {
+          "label": "Cross-cutting (Fig. 1)"
+        }
+      }
+    }
   },
   "components": [
     {
       "id": "entry",
-      "type": "backend",
+      "type": "frontend",
       "label": "Entry layer",
       "sublabel": "CLI · Web UI · Python SDK · ACP editor protocol",
       "pos": [
@@ -28,7 +51,7 @@
     },
     {
       "id": "compose",
-      "type": "backend",
+      "type": "cloud",
       "label": "Composition layer",
       "sublabel": "boot/profile · bundle three-layer patch · preset revision binding",
       "pos": [
@@ -44,7 +67,7 @@
       "id": "core",
       "type": "backend",
       "label": "Core skeleton",
-      "sublabel": "session event log · agent-loop · tools registry & executor · system-prompt · scope",
+      "sublabel": "session event log · agent-loop · tools registry & executor · system-prompt · scope · turn main chain expanded in Fig. 2",
       "pos": [
         60,
         300
@@ -56,9 +79,9 @@
     },
     {
       "id": "seams",
-      "type": "backend",
+      "type": "database",
       "label": "Capability seam layer",
-      "sublabel": "llm · execution world · subagent · skill · compaction — swap the provider, swap the behavior",
+      "sublabel": "llm · execution world · subagent · skill · compaction — swap the provider, swap the behavior · trio & three shapes expanded in Fig. 3",
       "pos": [
         60,
         420
@@ -70,9 +93,9 @@
     },
     {
       "id": "kernel",
-      "type": "backend",
+      "type": "external",
       "label": "Cordis kernel",
-      "sublabel": "ctx · Service · effect · events — everything is a plugin, no privileged kernel",
+      "sublabel": "ctx · Service · effect · events — everything is a plugin, no privileged kernel · see Fig. 3",
       "pos": [
         60,
         540
@@ -84,7 +107,7 @@
     },
     {
       "id": "cross",
-      "type": "backend",
+      "type": "security",
       "label": "Cross-cutting",
       "sublabel": "telemetry channel · typert gateway",
       "pos": [

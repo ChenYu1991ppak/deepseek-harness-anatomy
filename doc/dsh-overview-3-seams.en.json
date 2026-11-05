@@ -2,19 +2,30 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "dsh micro mechanics: the seam trio and its three shapes",
+    "title": "dsh micro mechanics: seam trio & three shapes (expanding Fig. 1's seam layer + Cordis kernel)",
     "locale": "en",
     "quality_profile": "showcase",
     "viewBox": [
       1000,
       560
     ],
-    "output": "dsh-overview-3-seams_en.html"
+    "output": "dsh-overview-3-seams_en.html",
+    "legend": {
+      "mode": "all",
+      "entries": {
+        "database": {
+          "label": "Capability seam layer (Fig. 1)"
+        },
+        "external": {
+          "label": "Cordis kernel (Fig. 1)"
+        }
+      }
+    }
   },
   "components": [
     {
       "id": "f1",
-      "type": "backend",
+      "type": "database",
       "label": "Method-call style",
       "sublabel": "shell / llm / tools executors: contract with a method surface",
       "pos": [
@@ -28,7 +39,7 @@
     },
     {
       "id": "f2",
-      "type": "backend",
+      "type": "database",
       "label": "Whole-package style",
       "sublabel": "ssh trio: fs/subprocess/sandbox all swapped",
       "pos": [
@@ -42,7 +53,7 @@
     },
     {
       "id": "f3",
-      "type": "backend",
+      "type": "database",
       "label": "Empty-definition style",
       "sublabel": "single-slot exclusive (computer/browser) · ctx.otel: placeholder only",
       "pos": [
@@ -56,7 +67,7 @@
     },
     {
       "id": "r1",
-      "type": "backend",
+      "type": "database",
       "label": "Definition (contract)",
       "sublabel": "the service contract; may be empty",
       "pos": [
@@ -70,7 +81,7 @@
     },
     {
       "id": "r2",
-      "type": "backend",
+      "type": "database",
       "label": "Provider (implementation)",
       "sublabel": "registration is an effect; swappable wholesale",
       "pos": [
@@ -84,7 +95,7 @@
     },
     {
       "id": "r3",
-      "type": "backend",
+      "type": "database",
       "label": "Consumer (usage)",
       "sublabel": "ctx.<name> resolves the contract",
       "pos": [
@@ -98,7 +109,7 @@
     },
     {
       "id": "k1",
-      "type": "backend",
+      "type": "external",
       "label": "Cordis kernel",
       "sublabel": "ctx two tables · Service registers on construct · reversible effect · emit/serial/waterfall",
       "pos": [

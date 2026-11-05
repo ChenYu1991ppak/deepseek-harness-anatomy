@@ -2,19 +2,39 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "dsh 一轮 turn 的主链：从入口到落盘",
+    "title": "dsh 一轮 turn 的主链：从入口到落盘（图 1「核心骨架」的展开）",
     "locale": "zh-CN",
     "quality_profile": "showcase",
     "viewBox": [
       1220,
       420
     ],
-    "output": "dsh-overview-2-turn_zh.html"
+    "output": "dsh-overview-2-turn_zh.html",
+    "legend": {
+      "mode": "all",
+      "entries": {
+        "backend": {
+          "label": "核心骨架（图 1）"
+        },
+        "cloud": {
+          "label": "组合层（图 1）"
+        },
+        "database": {
+          "label": "能力 seam 层（图 1）"
+        },
+        "frontend": {
+          "label": "入口层（图 1）"
+        },
+        "security": {
+          "label": "横切面（图 1）"
+        }
+      }
+    }
   },
   "components": [
     {
       "id": "n1",
-      "type": "backend",
+      "type": "frontend",
       "label": "入口与网关",
       "sublabel": "CLI/Web 进程内 · SDK/ACP 经 typert 网关",
       "pos": [
@@ -28,7 +48,7 @@
     },
     {
       "id": "n2",
-      "type": "backend",
+      "type": "cloud",
       "label": "boot 组合",
       "sublabel": "profile + bundle + preset → 插件树",
       "pos": [
@@ -70,7 +90,7 @@
     },
     {
       "id": "n6",
-      "type": "backend",
+      "type": "database",
       "label": "llm 适配器",
       "sublabel": "Messages 协议 · 流式",
       "pos": [
@@ -84,7 +104,7 @@
     },
     {
       "id": "n5",
-      "type": "backend",
+      "type": "database",
       "label": "tools 执行管线",
       "sublabel": "守卫瀑布 + native/PTC 执行器",
       "pos": [
@@ -112,7 +132,7 @@
     },
     {
       "id": "n8",
-      "type": "backend",
+      "type": "security",
       "label": "横切消费者",
       "sublabel": "compaction · 遥测捕获",
       "pos": [

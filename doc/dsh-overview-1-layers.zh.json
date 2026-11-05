@@ -7,14 +7,37 @@
     "quality_profile": "showcase",
     "viewBox": [
       940,
-      660
+      760
     ],
-    "output": "dsh-overview-1-layers_zh.html"
+    "output": "dsh-overview-1-layers_zh.html",
+    "legend": {
+      "mode": "all",
+      "entries": {
+        "backend": {
+          "label": "核心骨架（图 1）"
+        },
+        "cloud": {
+          "label": "组合层（图 1）"
+        },
+        "database": {
+          "label": "能力 seam 层（图 1）"
+        },
+        "external": {
+          "label": "Cordis 内核（图 1）"
+        },
+        "frontend": {
+          "label": "入口层（图 1）"
+        },
+        "security": {
+          "label": "横切面（图 1）"
+        }
+      }
+    }
   },
   "components": [
     {
       "id": "entry",
-      "type": "backend",
+      "type": "frontend",
       "label": "入口层",
       "sublabel": "CLI · Web UI · Python SDK · ACP 编辑器协议",
       "pos": [
@@ -28,7 +51,7 @@
     },
     {
       "id": "compose",
-      "type": "backend",
+      "type": "cloud",
       "label": "组合层",
       "sublabel": "boot/profile · bundle 三层 patch · preset revision 绑定",
       "pos": [
@@ -44,7 +67,7 @@
       "id": "core",
       "type": "backend",
       "label": "核心骨架",
-      "sublabel": "session 事件日志 · agent-loop · tools 注册表与执行器 · system-prompt · scope",
+      "sublabel": "session 事件日志 · agent-loop · tools 注册表与执行器 · system-prompt · scope · 一轮主链展开见图 2",
       "pos": [
         60,
         300
@@ -56,9 +79,9 @@
     },
     {
       "id": "seams",
-      "type": "backend",
+      "type": "database",
       "label": "能力 seam 层",
-      "sublabel": "llm · 执行世界 · subagent · skill · compaction —— 换 provider 即换行为",
+      "sublabel": "llm · 执行世界 · subagent · skill · compaction —— 换 provider 即换行为 · 三角色与三形态展开见图 3",
       "pos": [
         60,
         420
@@ -70,9 +93,9 @@
     },
     {
       "id": "kernel",
-      "type": "backend",
+      "type": "external",
       "label": "Cordis 内核",
-      "sublabel": "ctx · Service · effect · 事件派发 —— 一切皆插件，没有特权内核",
+      "sublabel": "ctx · Service · effect · 事件派发 —— 一切皆插件，没有特权内核 · 见图 3",
       "pos": [
         60,
         540
@@ -84,7 +107,7 @@
     },
     {
       "id": "cross",
-      "type": "backend",
+      "type": "security",
       "label": "横切面",
       "sublabel": "遥测通道 · typert 网关",
       "pos": [

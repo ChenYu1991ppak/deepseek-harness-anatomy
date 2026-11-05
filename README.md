@@ -64,15 +64,15 @@ The most macroscopic layered view:
 
 ![dsh macro layers](assets/dsh-overview-1-layers_en.png)
 
-*Figure 1 · Macro layers*: five layers from entry down to the Cordis kernel, each assembled on the one below; the cross-cutting plane (telemetry channel, typert gateway) hangs beside the core skeleton.
+*Figure 1 · Macro layers*: five layers from entry down to the Cordis kernel, each assembled on the one below; the cross-cutting plane (telemetry channel, typert gateway) hangs beside the core skeleton. **One color per layer, and this palette carries through Figures 2 and 3**; the core skeleton and the seam layer are expanded in the next two figures.
 
 ![dsh turn main chain](assets/dsh-overview-2-turn_en.png)
 
-*Figure 2 · One turn's main chain*: entry → boot composition → agent-loop → per-turn assembly → model call → tools pipeline → durable log; compaction and telemetry are cross-cutting consumers, and the dashed edge is the next turn's read-back.
+*Figure 2 · One turn's main chain (expanding Fig. 1's Core skeleton)*: entry → boot composition → agent-loop → per-turn assembly → model call → tools pipeline → durable log; **node color = its owning layer in Fig. 1** (see legend); compaction and telemetry are cross-cutting consumers, and the dashed edge is the next turn's read-back.
 
 ![dsh seam trio and three shapes](assets/dsh-overview-3-seams_en.png)
 
-*Figure 3 · The seam trio and its three shapes*: Definition / Provider / Consumer all live on ctx; providers register in three shapes — method-call, whole-package replacement, and empty-definition.
+*Figure 3 · The seam trio and its three shapes (expanding Fig. 1's seam layer + Cordis kernel)*: Definition / Provider / Consumer all live on ctx; providers register in three shapes — method-call, whole-package replacement, and empty-definition; colors match Fig. 1.
 
 Four core design philosophies run through the entire tutorial: **everything is a plugin, no privileged kernel**; **agent = model + harness**; **registration is effect** (installation is reversible and rollback-able); **the seam triple-role** (swap one provider, swap the entire behavior).
 

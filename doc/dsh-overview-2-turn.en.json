@@ -2,19 +2,39 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "dsh turn main chain: from entry to durable log",
+    "title": "dsh turn main chain: entry to durable log (expanding Fig. 1's Core skeleton)",
     "locale": "en",
     "quality_profile": "showcase",
     "viewBox": [
       1220,
-      420
+      520
     ],
-    "output": "dsh-overview-2-turn_en.html"
+    "output": "dsh-overview-2-turn_en.html",
+    "legend": {
+      "mode": "all",
+      "entries": {
+        "backend": {
+          "label": "Core skeleton (Fig. 1)"
+        },
+        "cloud": {
+          "label": "Composition layer (Fig. 1)"
+        },
+        "database": {
+          "label": "Capability seam layer (Fig. 1)"
+        },
+        "frontend": {
+          "label": "Entry layer (Fig. 1)"
+        },
+        "security": {
+          "label": "Cross-cutting (Fig. 1)"
+        }
+      }
+    }
   },
   "components": [
     {
       "id": "n1",
-      "type": "backend",
+      "type": "frontend",
       "label": "Entries & gateway",
       "sublabel": "CLI/Web in-process · SDK/ACP via typert gateway",
       "pos": [
@@ -28,7 +48,7 @@
     },
     {
       "id": "n2",
-      "type": "backend",
+      "type": "cloud",
       "label": "boot composition",
       "sublabel": "profile + bundle + preset → plugin tree",
       "pos": [
@@ -70,7 +90,7 @@
     },
     {
       "id": "n6",
-      "type": "backend",
+      "type": "database",
       "label": "llm adapters",
       "sublabel": "Messages protocol · streaming",
       "pos": [
@@ -84,7 +104,7 @@
     },
     {
       "id": "n5",
-      "type": "backend",
+      "type": "database",
       "label": "tools execution pipeline",
       "sublabel": "guard waterfall + native/PTC executors",
       "pos": [
@@ -112,7 +132,7 @@
     },
     {
       "id": "n8",
-      "type": "backend",
+      "type": "security",
       "label": "cross-cutting consumers",
       "sublabel": "compaction · telemetry capture",
       "pos": [
