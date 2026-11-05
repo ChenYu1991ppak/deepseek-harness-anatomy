@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "dsh 微观机制：seam 三角色与三种形态",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1000,
+      560
+    ],
+    "output": "dsh-overview-3-seams_zh.html"
+  },
+  "components": [
+    {
+      "id": "f1",
+      "type": "backend",
+      "label": "方法调用式",
+      "sublabel": "shell / llm / tools 执行器：契约带方法面",
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "f2",
+      "type": "backend",
+      "label": "整包替换式",
+      "sublabel": "ssh 三 provider：fs/subprocess/sandbox 全换",
+      "pos": [
+        360,
+        60
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "f3",
+      "type": "backend",
+      "label": "空定义式",
+      "sublabel": "单槽排他（computer/browser）· ctx.otel：只占位",
+      "pos": [
+        680,
+        60
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "r1",
+      "type": "backend",
+      "label": "Definition（契约）",
+      "sublabel": "服务合同；可以为空",
+      "pos": [
+        40,
+        250
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "r2",
+      "type": "backend",
+      "label": "Provider（实现）",
+      "sublabel": "注册即 effect；可整包换",
+      "pos": [
+        360,
+        250
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "r3",
+      "type": "backend",
+      "label": "Consumer（消费）",
+      "sublabel": "ctx.<名字> 按名解析契约",
+      "pos": [
+        680,
+        250
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "k1",
+      "type": "backend",
+      "label": "Cordis 内核",
+      "sublabel": "ctx 两张表 · Service 构造即注册 · effect 可逆 · emit/serial/waterfall",
+      "pos": [
+        40,
+        440
+      ],
+      "size": [
+        920,
+        64
+      ]
+    }
+  ],
+  "boundaries": [],
+  "connections": [
+    {
+      "id": "s1",
+      "from": "r2",
+      "to": "r1",
+      "label": "注册 = 挂到契约的 effect"
+    },
+    {
+      "id": "s2",
+      "from": "r2",
+      "to": "f1",
+      "label": "方法面"
+    },
+    {
+      "id": "s3",
+      "from": "r2",
+      "to": "f2",
+      "label": "整包实现"
+    },
+    {
+      "id": "s4",
+      "from": "r2",
+      "to": "f3",
+      "label": "只占位/空定义"
+    },
+    {
+      "id": "s5",
+      "from": "r1",
+      "to": "k1"
+    },
+    {
+      "id": "s6",
+      "from": "r2",
+      "to": "k1"
+    },
+    {
+      "id": "s7",
+      "from": "r3",
+      "to": "k1",
+      "label": "三角色都活在 ctx 上"
+    }
+  ]
+}

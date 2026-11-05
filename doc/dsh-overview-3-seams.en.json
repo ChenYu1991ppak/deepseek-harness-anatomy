@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "dsh micro mechanics: the seam trio and its three shapes",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1000,
+      560
+    ],
+    "output": "dsh-overview-3-seams_en.html"
+  },
+  "components": [
+    {
+      "id": "f1",
+      "type": "backend",
+      "label": "Method-call style",
+      "sublabel": "shell / llm / tools executors: contract with a method surface",
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "f2",
+      "type": "backend",
+      "label": "Whole-package style",
+      "sublabel": "ssh trio: fs/subprocess/sandbox all swapped",
+      "pos": [
+        360,
+        60
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "f3",
+      "type": "backend",
+      "label": "Empty-definition style",
+      "sublabel": "single-slot exclusive (computer/browser) · ctx.otel: placeholder only",
+      "pos": [
+        680,
+        60
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "r1",
+      "type": "backend",
+      "label": "Definition (contract)",
+      "sublabel": "the service contract; may be empty",
+      "pos": [
+        40,
+        250
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "r2",
+      "type": "backend",
+      "label": "Provider (implementation)",
+      "sublabel": "registration is an effect; swappable wholesale",
+      "pos": [
+        360,
+        250
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "r3",
+      "type": "backend",
+      "label": "Consumer (usage)",
+      "sublabel": "ctx.<name> resolves the contract",
+      "pos": [
+        680,
+        250
+      ],
+      "size": [
+        280,
+        64
+      ]
+    },
+    {
+      "id": "k1",
+      "type": "backend",
+      "label": "Cordis kernel",
+      "sublabel": "ctx two tables · Service registers on construct · reversible effect · emit/serial/waterfall",
+      "pos": [
+        40,
+        440
+      ],
+      "size": [
+        920,
+        64
+      ]
+    }
+  ],
+  "boundaries": [],
+  "connections": [
+    {
+      "id": "s1",
+      "from": "r2",
+      "to": "r1",
+      "label": "register = an effect on the contract"
+    },
+    {
+      "id": "s2",
+      "from": "r2",
+      "to": "f1",
+      "label": "method surface"
+    },
+    {
+      "id": "s3",
+      "from": "r2",
+      "to": "f2",
+      "label": "whole-package impl"
+    },
+    {
+      "id": "s4",
+      "from": "r2",
+      "to": "f3",
+      "label": "placeholder / empty definition"
+    },
+    {
+      "id": "s5",
+      "from": "r1",
+      "to": "k1"
+    },
+    {
+      "id": "s6",
+      "from": "r2",
+      "to": "k1"
+    },
+    {
+      "id": "s7",
+      "from": "r3",
+      "to": "k1",
+      "label": "all three roles live on ctx"
+    }
+  ]
+}

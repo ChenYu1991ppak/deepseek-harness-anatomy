@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "dsh turn main chain: from entry to durable log",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1220,
+      420
+    ],
+    "output": "dsh-overview-2-turn_en.html"
+  },
+  "components": [
+    {
+      "id": "n1",
+      "type": "backend",
+      "label": "Entries & gateway",
+      "sublabel": "CLI/Web in-process · SDK/ACP via typert gateway",
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        240,
+        64
+      ]
+    },
+    {
+      "id": "n2",
+      "type": "backend",
+      "label": "boot composition",
+      "sublabel": "profile + bundle + preset → plugin tree",
+      "pos": [
+        360,
+        60
+      ],
+      "size": [
+        240,
+        64
+      ]
+    },
+    {
+      "id": "n3",
+      "type": "backend",
+      "label": "agent-loop turn",
+      "sublabel": "kick / turn / step",
+      "pos": [
+        680,
+        60
+      ],
+      "size": [
+        240,
+        64
+      ]
+    },
+    {
+      "id": "n4",
+      "type": "backend",
+      "label": "system-prompt assembly",
+      "sublabel": "layered sections + runtime context",
+      "pos": [
+        1000,
+        60
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "n6",
+      "type": "backend",
+      "label": "llm adapters",
+      "sublabel": "Messages protocol · streaming",
+      "pos": [
+        940,
+        300
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "n5",
+      "type": "backend",
+      "label": "tools execution pipeline",
+      "sublabel": "guard waterfall + native/PTC executors",
+      "pos": [
+        660,
+        300
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "n7",
+      "type": "backend",
+      "label": "session event log",
+      "sublabel": "handle persistence · format chain v0→v4",
+      "pos": [
+        380,
+        300
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "n8",
+      "type": "backend",
+      "label": "cross-cutting consumers",
+      "sublabel": "compaction · telemetry capture",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        200,
+        64
+      ]
+    }
+  ],
+  "boundaries": [],
+  "connections": [
+    {
+      "id": "a1",
+      "from": "n1",
+      "to": "n2",
+      "label": "launch"
+    },
+    {
+      "id": "a2",
+      "from": "n2",
+      "to": "n3",
+      "label": "kick off"
+    },
+    {
+      "id": "a3",
+      "from": "n3",
+      "to": "n4",
+      "label": "pre-step"
+    },
+    {
+      "id": "a4",
+      "from": "n4",
+      "to": "n6",
+      "label": "into the model call"
+    },
+    {
+      "id": "a5",
+      "from": "n3",
+      "to": "n5",
+      "label": "tools/execute"
+    },
+    {
+      "id": "a6",
+      "from": "n6",
+      "to": "n5",
+      "label": "tool calls"
+    },
+    {
+      "id": "a7",
+      "from": "n5",
+      "to": "n7",
+      "label": "append"
+    },
+    {
+      "id": "a8",
+      "from": "n7",
+      "to": "n8",
+      "label": "surface + capture"
+    },
+    {
+      "id": "a9",
+      "from": "n7",
+      "to": "n3",
+      "label": "next turn reads back",
+      "variant": "dashed"
+    }
+  ]
+}

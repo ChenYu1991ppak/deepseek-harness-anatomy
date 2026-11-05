@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "dsh macro layers: agent = model + harness",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      940,
+      660
+    ],
+    "output": "dsh-overview-1-layers_en.html"
+  },
+  "components": [
+    {
+      "id": "entry",
+      "type": "backend",
+      "label": "Entry layer",
+      "sublabel": "CLI · Web UI · Python SDK · ACP editor protocol",
+      "pos": [
+        60,
+        60
+      ],
+      "size": [
+        560,
+        64
+      ]
+    },
+    {
+      "id": "compose",
+      "type": "backend",
+      "label": "Composition layer",
+      "sublabel": "boot/profile · bundle three-layer patch · preset revision binding",
+      "pos": [
+        60,
+        180
+      ],
+      "size": [
+        560,
+        64
+      ]
+    },
+    {
+      "id": "core",
+      "type": "backend",
+      "label": "Core skeleton",
+      "sublabel": "session event log · agent-loop · tools registry & executor · system-prompt · scope",
+      "pos": [
+        60,
+        300
+      ],
+      "size": [
+        560,
+        64
+      ]
+    },
+    {
+      "id": "seams",
+      "type": "backend",
+      "label": "Capability seam layer",
+      "sublabel": "llm · execution world · subagent · skill · compaction — swap the provider, swap the behavior",
+      "pos": [
+        60,
+        420
+      ],
+      "size": [
+        560,
+        64
+      ]
+    },
+    {
+      "id": "kernel",
+      "type": "backend",
+      "label": "Cordis kernel",
+      "sublabel": "ctx · Service · effect · events — everything is a plugin, no privileged kernel",
+      "pos": [
+        60,
+        540
+      ],
+      "size": [
+        560,
+        64
+      ]
+    },
+    {
+      "id": "cross",
+      "type": "backend",
+      "label": "Cross-cutting",
+      "sublabel": "telemetry channel · typert gateway",
+      "pos": [
+        700,
+        300
+      ],
+      "size": [
+        180,
+        64
+      ]
+    }
+  ],
+  "boundaries": [],
+  "connections": [
+    {
+      "id": "e1",
+      "from": "entry",
+      "to": "compose",
+      "label": "assemble per config"
+    },
+    {
+      "id": "e2",
+      "from": "compose",
+      "to": "core",
+      "label": "plugin tree hosts the skeleton"
+    },
+    {
+      "id": "e3",
+      "from": "core",
+      "to": "seams",
+      "label": "skeleton consumes seams"
+    },
+    {
+      "id": "e4",
+      "from": "seams",
+      "to": "kernel",
+      "label": "all of it is plugins"
+    },
+    {
+      "id": "e5",
+      "from": "core",
+      "to": "cross",
+      "label": "capture & exposure",
+      "variant": "dashed"
+    }
+  ]
+}
