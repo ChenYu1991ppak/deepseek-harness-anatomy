@@ -16,3 +16,6 @@ source-decomposition-expert-team/
 
 # 上游同步更新工作目录（source-tour shim：状态/审计/报告，不入库）
 .update/
+
+# archify 工作目录（渲染中间产物，不入库）
+.archify/
