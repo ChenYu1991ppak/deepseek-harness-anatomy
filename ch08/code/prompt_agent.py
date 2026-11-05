@@ -1,7 +1,12 @@
 """第 8 章：循环侧的粘合——运行时上下文投影 + 完整版 pre_step。
 
-对应 packages/core/agent-loop/src/agent.ts 的 preStep（:225-243）：
-assemble → 渲染上下文快照 → runtimeContext.project 去重 → pre-step waterfall。
+源码对应（HEAD 8bd073392）：
+- packages/core/agent-loop/src/agent.ts:283 preStep：每步先 assemble（:294），
+  再走 agent/pre-step waterfall（:296）；内部兜底把快照拼到 claimed 之后（:303）。
+- packages/core/agent-loop/src/runtime-context.ts:119 RuntimeContextProjection，
+  project（:157）只在快照变化时产出新的 user 消息。
+真实 preStep 还带 modelSelection / toolSet / abort signal；教学版只保留
+「assemble → 渲染上下文快照 → 去重投影 → waterfall」主干。
 
 本模块继承 ch02/agent_loop.py 的 ReactLoopAgent，只替换 pre_step/step 两处：
 - ch02 桩的 assemble() 返回段对象列表，render_prompt 直接 join；
@@ -23,10 +28,11 @@ from system_prompt import render_context_snapshot, render_prompt  # noqa: E402
 
 
 class RuntimeContext:
-    """运行时上下文快照去重器，对应 agent.ts:233 runtimeContext.project。
+    """运行时上下文快照去重器，对应 runtime-context.ts:119 RuntimeContextProjection。
 
     快照内容变化时才产生新的注入文本；内容不变返回 None，
-    避免同一份上下文在每步重复注入（真实版按投影身份比较，教学版按文本比较）。
+    避免同一份上下文在每步重复注入（真实版记住的是快照在 session 里的位置与文本，
+    教学版只按文本比较）。
     """
 
     def __init__(self):
@@ -43,9 +49,10 @@ class RuntimeContext:
 class PromptAwareAgent(ReactLoopAgent):
     """接上完整版 SystemPrompt 的循环代理。
 
-    pre_step 对应 agent.ts:225-243 preStep：
+    pre_step 对应 agent.ts:283 preStep：
     1. assemble() 得到完整 PromptAssembly（含 sections/contexts/tools）；
     2. 机制 A：渲染上下文快照，经 RuntimeContext.project 去重后注入；
+       真实版把快照拼在 claimed 消息之后（agent.ts:303）；
     3. pre-step waterfall：机制 B 插件在此追加各自的注入文本；
     4. step 把 system 文本与工具 schema（并列字段）一起交给模型。
     """
@@ -76,11 +83,11 @@ class PromptAwareAgent(ReactLoopAgent):
             "assembly": assembly,
             "additional_contexts": [],
         }
-        # 机制 A：上下文快照只在内容变化时注入（对应 agent.ts:232-238）
+        # 机制 A：上下文快照只在内容变化时注入（对应 agent.ts:299-303）
         context_text = self.runtime_context.project(render_context_snapshot(assembly))
         if context_text is not None:
             snapshot["additional_contexts"].append(context_text)
-        # pre-step waterfall：机制 B 插件在此追加注入文本（对应 agent.ts:241）
+        # pre-step waterfall：机制 B 插件在此追加注入文本（对应 agent.ts:296）
         return self.ctx.waterfall("agent/pre-step", snapshot)
 
     def step(self, snapshot):

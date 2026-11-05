@@ -2,7 +2,8 @@
 
 仅标准库，Python 3.10+。运行：python3 bad_example.py
 用两个函数模拟两次进程生命周期：
-进程 1 跑一轮对话（事件只进内存日志）；进程 2 用全新容器冷读同一个 session。
+进程 1 跑一轮对话（没有挂持久化后端，也没有任何句柄认领这个会话）；
+进程 2 用全新容器冷读同一个 session。
 """
 import os
 import sys
@@ -19,7 +20,7 @@ from agent_loop import AgentLoop, LlmStub, Sessions, SystemPromptService  # noqa
 
 
 def run_first_process():
-    """进程 1：装配容器、跑一轮对话，事件全部留在内存日志。"""
+    """进程 1：装配容器、跑一轮对话。没有后端，也就没有句柄认领这个会话。"""
     ctx = Context()
     Sessions(ctx)
     ctx.provide("llm", LlmStub())

@@ -1,16 +1,16 @@
 """第 13 章教学重构：web 提供者 —— 确定性 mock 实现。
 
-源码对应：
-- HttpFetchProvider      ↔ web-fetch-http/src/provider.ts:36（id='http' :33，
-                           available()=>true :42，followAndRead :56-101 只跟随同源重定向，
-                           readCapped :155 限量读取）
-- DeepSeekSearchProvider ↔ web-search-deepseek/src/provider.ts:177（id='deepseek-official' :27，
-                           available :189 只查本地配置）
+源码对应（上游仓库根起）：
+- HttpFetchProvider      ↔ packages/web/web-fetch-http/src/provider.ts:33（id='http' :34，
+                           available()=>true :51，followAndRead :65 只跟随同源重定向，
+                           readCapped :173 限量读取）
+- DeepSeekSearchProvider ↔ packages/web/web-search-deepseek/src/provider.ts:204（id :205，
+                           available :227 只查本地配置：凭据、Base URL 解析、上限参数）
 
 [教学决策] 真实提供者发真实 HTTP / 搜索 API 请求；教学版用确定性 mock
 （固定 query→结果、URL→页面表），输出可复现、无网络。提供者契约保留：
 id + available() + search()/fetch()，且 available() 只做本地检查、
-绝不发网络调用（types.ts:101）。
+绝不发网络调用（`packages/web/web/src/types.ts:131`）。
 """
 
 from web_runtime import WebError
@@ -43,11 +43,11 @@ class MockSearchProvider:
     }
 
     def available(self):
-        """只做本地检查，不发网络调用（types.ts:101）。"""
+        """只做本地检查，不发网络调用（`packages/web/web/src/types.ts:131`）。"""
         return True
 
     def search(self, request):
-        """返回 WebSearchResult：query + sources（types.ts:34/:49）。"""
+        """返回 WebSearchResult：query + sources（`packages/web/web/src/types.ts:50-57` / :65-74）。"""
         query = request["query"]
         return {"query": query, "sources": list(self.TABLE.get(query, []))}
 
@@ -109,14 +109,15 @@ class MockFetchProvider:
         return True
 
     def fetch(self, request):
-        """返回 WebFetchResult：url + status + body（types.ts:73）；body 是 html|text 并集（types.ts:93）。"""
+        """返回 WebFetchResult：url + statusCode + body（`packages/web/web/src/types.ts:92-101`）；
+        body 是 html|text 并集（:112-114）。truncated 字段教学版省略。"""
         url = request["url"]
         page = self.PAGES.get(url)
         if page is None:
-            return {"url": url, "status": 404,
+            return {"url": url, "statusCode": 404,
                     "body": {"kind": "text", "text": "not found"}}
         if page["kind"] == "binary":
             # 真实 HttpFetchProvider 在此拒绝不支持的内容类型
             raise WebError("WEB_UNSUPPORTED_CONTENT_TYPE",
                            f"unsupported content: {url}")
-        return {"url": url, "status": 200, "body": page}
+        return {"url": url, "statusCode": 200, "body": page}

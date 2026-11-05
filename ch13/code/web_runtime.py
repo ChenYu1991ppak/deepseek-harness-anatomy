@@ -1,18 +1,18 @@
 """第 13 章教学重构：web 能力 seam —— 提供者注册表 + 方法面。
 
-源码对应（packages/web/web/src/index.ts）：
-- WebRuntime                       ↔ index.ts:74（extends Service，注册为 ctx.web）
-- searchProviders / fetchProviders ↔ index.ts:85-86（两张独立注册表）
-- registerSearchProvider           ↔ index.ts:103-105
-- registerFetchProvider            ↔ index.ts:114-116
-- registerProvider                 ↔ index.ts:118-129（ctx.effect 在 :122-125）
-- search / fetch                   ↔ index.ts:140-147 / 157-163
-- resolveProvider                  ↔ index.ts:172-194（六条选择规则）
-- capSources                       ↔ index.ts:197-200（seam 强制 maxResults）
-- WebError                         ↔ types.ts:129
+源码对应（上游仓库根起：packages/web/web/src/index.ts、packages/web/web/src/types.ts）：
+- WebRuntime                       ↔ packages/web/web/src/index.ts:82（extends TypertRemoteService，注册为 ctx.web）
+- searchProviders / fetchProviders ↔ packages/web/web/src/index.ts:93-94（两张独立注册表）
+- registerSearchProvider           ↔ packages/web/web/src/index.ts:113-115
+- registerFetchProvider            ↔ packages/web/web/src/index.ts:124-126
+- registerProvider                 ↔ packages/web/web/src/index.ts:128-144（ctx.effect 在 :133-140）
+- search / fetch                   ↔ packages/web/web/src/index.ts:185-188 / 219-221
+- resolveProvider                  ↔ packages/web/web/src/index.ts:275-297（六条选择规则）
+- capSources                       ↔ packages/web/web/src/index.ts:300-303（seam 强制 maxResults）
+- WebError                         ↔ packages/web/web/src/types.ts:202
 
 [教学决策] 真实提供者是 HttpFetchProvider（真实 HTTP）与 DeepSeekSearchProvider
-（真实搜索 API）；教学版用确定性 mock 提供者，网络细节只出现在正文 §7 源码对应。
+（真实搜索 API）；教学版用确定性 mock 提供者，网络细节只出现在正文 §8 源码对照。
 """
 
 import sys
@@ -25,7 +25,7 @@ from cordis import Service  # noqa: E402
 
 
 class WebError(Exception):
-    """web seam 的统一错误，带机器可读 code（types.ts:129）。
+    """web seam 的统一错误，带机器可读 code（`packages/web/web/src/types.ts:202`）。
 
     真实错误码含 WEB_DUPLICATE_PROVIDER / WEB_PROVIDER_* / WEB_ABORTED /
     WEB_FETCH_TIMEOUT / WEB_REDIRECT_BLOCKED / WEB_UNSUPPORTED_CONTENT_TYPE。
@@ -37,39 +37,39 @@ class WebError(Exception):
 
 
 class WebRuntime(Service):
-    """ctx.web 服务：两张注册表 + search/fetch 方法面（index.ts:74）。
+    """ctx.web 服务：两张注册表 + search/fetch 方法面（`packages/web/web/src/index.ts:82`）。
 
     seam 只管「谁在场 + 选谁」，从不碰网络：
     - register_*_provider：提供者运行时注册，重复 id 拒绝
     - search / fetch：执行时 resolve_provider 按规则选人，再委托提供者
-    类 doc（index.ts:62-73）写明选择语义：执行时解析，绝不依赖注册顺序。
+    类 doc（`packages/web/web/src/index.ts:69-81`）写明选择语义：执行时解析，绝不依赖注册顺序。
     """
 
     def __init__(self, ctx, config=None):
         super().__init__(ctx, "web")
         config = config or {}
-        # 配置的提供者 id（index.ts:80-83）；真实版还可被环境变量覆盖（index.ts:92-93）
+        # 配置的提供者 id（`packages/web/web/src/index.ts:88-91`）；真实版还可被环境变量覆盖（:100-101）
         self.configured_search = config.get("searchProvider")
         self.configured_fetch = config.get("fetchProvider")
-        self.search_providers = {}  # search 注册表（index.ts:85）
-        self.fetch_providers = {}   # fetch 注册表（index.ts:86）
+        self.search_providers = {}  # search 注册表（`packages/web/web/src/index.ts:93`）
+        self.fetch_providers = {}   # fetch 注册表（`packages/web/web/src/index.ts:94`）
 
     def register_search_provider(self, provider):
-        """注册 search 提供者（index.ts:103-105）。"""
+        """注册 search 提供者（`packages/web/web/src/index.ts:113-115`）。"""
         return self._register_provider(self.search_providers, provider)
 
     def register_fetch_provider(self, provider):
-        """注册 fetch 提供者（index.ts:114-116）。"""
+        """注册 fetch 提供者（`packages/web/web/src/index.ts:124-126`）。"""
         return self._register_provider(self.fetch_providers, provider)
 
     def _register_provider(self, registry, provider):
-        """注册是 effect：注册写表、卸载还原（index.ts:118-129）。"""
+        """注册是 effect：注册写表、卸载还原（`packages/web/web/src/index.ts:128-144`）。"""
         if provider.id in registry:
             raise WebError("WEB_DUPLICATE_PROVIDER",
                            f"duplicate web provider id: {provider.id}")
 
         def setup():
-            registry[provider.id] = provider  # ctx.effect 体（index.ts:122-125）
+            registry[provider.id] = provider  # ctx.effect 体（`packages/web/web/src/index.ts:133-140`）
 
             def dispose():
                 if registry.get(provider.id) is provider:
@@ -80,20 +80,20 @@ class WebRuntime(Service):
         return self.ctx.effect(setup)
 
     def search(self, request):
-        """search 方法面：按规则选人 → provider.search → cap_sources（index.ts:140-147）。"""
+        """search 方法面：按规则选人 → provider.search → cap_sources（`packages/web/web/src/index.ts:185-188`）。"""
         provider = self._resolve_provider(self.search_providers,
                                           self.configured_search)
         result = provider.search(request)
         return cap_sources(result, request.get("maxResults"))
 
     def fetch(self, request):
-        """fetch 方法面：按规则选人 → provider.fetch（index.ts:157-163）。"""
+        """fetch 方法面：按规则选人 → provider.fetch（`packages/web/web/src/index.ts:219-221`）。"""
         provider = self._resolve_provider(self.fetch_providers,
                                           self.configured_fetch)
         return provider.fetch(request)
 
     def _resolve_provider(self, registry, configured_id):
-        """执行时选人：六条规则，绝不依赖注册顺序（index.ts:172-194）。"""
+        """执行时选人：六条规则，绝不依赖注册顺序（`packages/web/web/src/index.ts:275-297`）。"""
         if configured_id is not None:
             provider = registry.get(configured_id)
             if provider is None:
@@ -125,7 +125,7 @@ class WebRuntime(Service):
 
 
 def cap_sources(result, max_results):
-    """seam 强制 maxResults：截断 sources 并置 truncated（index.ts:197-200）。
+    """seam 强制 maxResults：截断 sources 并置 truncated（`packages/web/web/src/index.ts:300-303`）。
 
     提供者不必知道上限 —— 上限写在 seam，所有提供者一律受益。
     """

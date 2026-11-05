@@ -10,10 +10,11 @@ shell 在本章点到即止：bash-sandbox 不是新机制，而是 ctx.sandbox 
 工具层 tool_bash.py 与词汇层 shell.py 一行不改——消费者只认 ctx.shell 抽象。
 
 源码对应（packages/shell/bash-sandbox/）：
-- SandboxBashExecutor extends LocalBashExecutor ↔ shell/bash-sandbox/src/index.ts:44
-- static inject=['subprocess','sandbox','sandboxPolicy'] ↔ index.ts:45
-- run() / confine()                              ↔ index.ts:88 / :177
-- 无 ctx.sandbox 时 fail-closed 抛 SandboxUnavailableError ↔ sandbox/src/index.ts:124/:131
+- SandboxBashExecutor extends LocalBashExecutor ↔ packages/shell/bash-sandbox/src/index.ts:45
+- static inject=['subprocess','sandbox','sandboxPolicy'] ↔ packages/shell/bash-sandbox/src/index.ts:46
+- resolve() / execute() / confine()             ↔ :85 / :89 / :187
+- 无 ctx.sandbox 时 fail-closed 抛 SandboxUnavailableError
+                                                ↔ packages/sandbox/sandbox/src/index.ts:132/:139
 """
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ __all__ = ["SandboxBashExecutor"]
 
 
 class SandboxBashExecutor(LocalBashExecutor):
-    """bash-sandbox 实现（index.ts:44）：sandbox seam 的消费方。
+    """bash-sandbox 实现（packages/shell/bash-sandbox/src/index.ts:45）：sandbox seam 的消费方。
 
     inject=['subprocess','sandbox'] 在 TS 由 cordis 注入；教学版构造函数显式注入。
     [教学简化] 真实版还注入 sandboxPolicy（按次策略）；教学版用固定 workspace-write 策略。
@@ -58,7 +59,7 @@ class SandboxBashExecutor(LocalBashExecutor):
     def _confine(self, argv):
         """把 argv 经 ctx.sandbox.confine 包成「runner + profile + -- + argv」。
 
-        fail-closed：没有 ctx.sandbox 直接抛 SandboxUnavailableError（sandbox/src/index.ts:124/:131），
+        fail-closed：没有 ctx.sandbox 直接抛 SandboxUnavailableError（packages/sandbox/sandbox/src/index.ts:132/:139），
         绝不退化成裸跑。
         """
         if self._sandbox is None:

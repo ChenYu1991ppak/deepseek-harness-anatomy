@@ -3,22 +3,28 @@
 仅标准库，Python 3.10+。运行：python3 main.py
 
 两个 provider 范本，对应真实两个实现包：
-- BadgeSkillProvider      ↔ packages/skill/skill-badge/src/index.ts（内置，静态 list + 读资源 get）
+- BadgeSkillProvider      ↔ packages/experimental/skill-badge/src/index.ts（实验包里的内置 provider：静态 list + 读资源 get）
 - FilesystemSkillProvider ↔ packages/skill/skill-filesystem/src/index.ts（目录扫描 + parse SKILL.md）
 
-源码对应：
-- badge：PROVIDER_NAME:17、CANDIDATE:25（source='bundled'、rank=BUNDLED_SKILL_RANK）、
-  provider:36（list→[CANDIDATE]、get→readFile）、apply:58（一行 registerProvider）
-- filesystem：name:45、FileSystemSkillProvider:146（list:182、get:206、roots:241）、
-  parseSkillFile:793、parseFrontmatter:909、discoverRoot:719
+badge 属于 `packages/experimental/`（实验性 provider，默认组合不声明它）；filesystem 属于
+`packages/skill/` 正式包族。两者实现的是同一份 SkillProvider 契约，注册进同一个 ctx.skills。
+
+源码对应（badge，仓库根起 packages/experimental/skill-badge/src/index.ts，全文件 60 行）：
+- PROVIDER_NAME:17、CANDIDATE:25（source='bundled'、rank=BUNDLED_SKILL_RANK:32、
+  locator=SKILL_BODY_URL:33）、provider:36（list→[CANDIDATE]、get→readFile:47）、
+  apply:58（一行 ctx.skills.registerProvider）
+源码对应（filesystem，仓库根起 packages/skill/skill-filesystem/src/index.ts）：
+- name:44、FileSystemSkillProvider:149（list:185、get:216）、roots:251（六类根 + rank 阶梯）、
+  discoverRoot:737、parseSkillFile:811、parseFrontmatter:931、parseInvocationPolicy:1014、
+  SkillWatchManager:294、ctx.on('fs/observed'):142
 
 [教学决策 2] 两个 provider 同现，展示「provider 注册表」型 seam 的多实现并存：
 badge 是「最简内置 provider」（静态候选 + 内置正文），filesystem 是「目录扫描 provider」。
 [教学决策 3] badge 内置两个技能（skill-creator + code-review 的 bundled 版），
 让 bundled 版 code-review 与 filesystem 的项目版 code-review 同名，
 以便在同一个 global 层内演示「同层 rank 决胜（小者胜）」。
-[教学简化 5] filesystem 真实实现扫 project/user/custom 多层目录 + Chokidar watch
-（SkillWatchManager:284、ctx.on('fs/observed'):139）；教学版只扫单一 root、不 watch，
+[教学简化 5] filesystem 真实实现扫 project / user / custom 多类目录 + Chokidar watch
+（SkillWatchManager:294、ctx.on('fs/observed'):142）；教学版只扫单一 root、不 watch，
 靠注册表手动 invalidate 代替精确失效。
 """
 from __future__ import annotations
@@ -44,24 +50,25 @@ from skill_registry import (  # noqa: E402
 
 
 class BadgeSkillProvider(SkillProvider):
-    """内置最简 provider（skill-badge/src/index.ts:36）：静态候选 + 内置正文。
+    """内置最简 provider（packages/experimental/skill-badge/src/index.ts:36）：静态候选 + 内置正文。
 
     真实 badge 只内置一个技能 dsh-badge（CANDIDATE:25，source='bundled'，
-    rank=BUNDLED_SKILL_RANK:27），list() 静态返回 [CANDIDATE]，get() 读资源文件。
+    rank=BUNDLED_SKILL_RANK:32），list() 静态返回 Promise.resolve([CANDIDATE])，
+    get() 读资源文件。它是实验 provider：默认组合不声明，部署方要显式插行。
     [教学决策 3] 教学版内置两个技能，其中 code-review 的 bundled 版与 filesystem 的
     项目版同名，用于演示同层 rank 决胜。
     """
 
-    name = "dsh-badge"  # PROVIDER_NAME（skill-badge/src/index.ts:17）
+    name = "dsh-badge"  # PROVIDER_NAME（packages/experimental/skill-badge/src/index.ts:17）
 
     def __init__(self):
-        # 内置正文直接写在代码里；真实 badge 从资源 URL 读（SKILL_BODY_URL:18）。
+        # 内置正文直接写在代码里；真实 badge 从资源 URL 读（SKILL_BODY_URL:18、readFile:47）。
         self._bodies = {
             "skill-creator": (
                 "创建新技能的步骤：\n"
-                "1. 新建目录并写 SKILL.md（frontmatter 声明 name/description）。\n"
+                "1. 新建目录并写 SKILL.md（目录名即技能名，正文写在 SKILL.md 里）。\n"
                 "2. 正文写清触发条件与操作步骤。\n"
-                "3. 放进技能目录，由 filesystem provider 扫描加载。"
+                "3. 放进技能根目录（如 .dsh/skills/），由 filesystem provider 的 roots:251 扫描加载。"
             ),
             "code-review": (
                 "通用代码评审（内置兜底版）：\n"
@@ -70,7 +77,7 @@ class BadgeSkillProvider(SkillProvider):
         }
 
     def list(self):
-        """静态返回内置候选（对应 list:()=>[CANDIDATE]，skill-badge/src/index.ts:38）。"""
+        """静态返回内置候选（对应 list:()=>[CANDIDATE]，packages/experimental/skill-badge/src/index.ts:38）。"""
         return [
             SkillCandidate(
                 name="skill-creator",
@@ -89,7 +96,7 @@ class BadgeSkillProvider(SkillProvider):
         ]
 
     def get(self, candidate):
-        """按候选读内置正文（对应 get:readFile，skill-badge/src/index.ts:39-49）。"""
+        """按候选读内置正文（对应 get:readFile，packages/experimental/skill-badge/src/index.ts:39-49）。"""
         content = self._bodies.get(candidate.name)
         if content is None:
             return None
@@ -108,11 +115,11 @@ class BadgeSkillProvider(SkillProvider):
 def parse_skill_file(path: Path):
     """parse 一个 SKILL.md：frontmatter（name/description）+ 正文。
 
-    对应 parseSkillFile（skill-filesystem/src/index.ts:793）与
-    parseFrontmatter（:909）。返回 (name, description, content)；
+    对应 parseSkillFile（packages/skill/skill-filesystem/src/index.ts:811）与
+    parseFrontmatter（:931）。返回 (name, description, content)；
     无 frontmatter 或缺 name 则返回 None。
     [教学简化 6] 真实 parseFrontmatter 支持任意字段 + invocation policy 解析
-    （parseInvocationPolicy:992）；教学版只取 name/description 两个字段。
+    （parseInvocationPolicy:1014）；教学版只取 name/description 两个字段。
     """
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
@@ -136,14 +143,15 @@ def parse_skill_file(path: Path):
 
 
 class FilesystemSkillProvider(SkillProvider):
-    """目录扫描 provider（skill-filesystem/src/index.ts:146）：扫 root 下 *.md 并 parse。
+    """目录扫描 provider（packages/skill/skill-filesystem/src/index.ts:149）：扫 root 下 *.md 并 parse。
 
-    真实 filesystem 经 discoverRoot:719 发现 project/user/custom 多层目录，
-    list:182 汇总候选、get:206 按 locator 读文件 parse 出正文。
+    真实 filesystem 经 roots:251 枚举六类根（project-dsh / project-agents / custom /
+    user-dsh / user-agents / bundled）、discoverRoot:737 发现，list:185 汇总候选、
+    get:216 用候选携带的 locator 读文件 parse 出正文。
     [教学简化 5] 教学版只扫单一 root、不 watch；正文定位用「name.md」约定代替 locator。
     """
 
-    name = "filesystem"  # Config.providerName 默认 'filesystem'（skill-filesystem/src/index.ts:76）
+    name = "filesystem"  # Config.providerName 默认 'filesystem'（packages/skill/skill-filesystem/src/index.ts:76）
 
     def __init__(self, root):
         self.root = Path(root)
@@ -151,7 +159,7 @@ class FilesystemSkillProvider(SkillProvider):
         self.scan_count = 0
 
     def list(self):
-        """扫描 root 下全部 *.md，parse 出候选（对应 list:182 + roots:241）。"""
+        """扫描 root 下全部 *.md，parse 出候选（对应 list:185 + roots:251）。"""
         self.scan_count += 1  # 每次被调用都真实扫盘；缓存命中时注册表不会调到这里
         candidates = []
         for path in sorted(self.root.glob("*.md")):
@@ -171,7 +179,7 @@ class FilesystemSkillProvider(SkillProvider):
         return candidates
 
     def get(self, candidate):
-        """按「name.md」约定读文件并 parse 出正文（对应 get:206 + parseSkillFile:793）。"""
+        """按「name.md」约定读文件并 parse 出正文（对应 get:216 + parseSkillFile:811）。"""
         path = self.root / f"{candidate.name}.md"
         if not path.exists():
             return None

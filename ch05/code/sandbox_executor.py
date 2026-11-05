@@ -2,11 +2,11 @@
 
 仅标准库，Python 3.10+。运行：python3 main.py
 
-[教学决策] 素材 §2 提到 bash-sandbox / pwsh-local 是 bash-local 的兄弟 provider，
-但 §5 符号映射总表只给 LocalBashExecutor 一行。为演示「换 provider 消费者一行不改」，
-本章新增一个纯教学桩 SandboxExecutor：同样实现 ShellExecutor 的 resolve/run/start，
-但 run 不真正 spawn 进程，而是把命令「放进沙箱」记录并返回固定退出码 0。
-真实 bash-sandbox 的 sandbox_mode 机制留到第 6 章 subprocess seam 展开。
+[教学决策] 素材只给 LocalBashExecutor 一份实现。为演示「换 provider 消费者一行不改」，
+本章新增一个纯教学桩 SandboxExecutor：同样实现 ShellExecutor 的 resolve/execute，
+但 execute 不真正 spawn 进程，而是把命令记进沙箱日志并返回一个已结束的句柄。
+真实 bash-sandbox 通过实现 sandboxMode + 覆盖 resolve 来标记沙箱策略，
+留到第 6 章 subprocess / sandbox seam 展开。
 """
 from __future__ import annotations
 
@@ -20,13 +20,41 @@ if _CH01 not in sys.path:
 from shell import (  # noqa: E402
     ShellExecRequest,
     ShellExecSpec,
+    ShellExecution,
     ShellExecutor,
-    ShellProcess,
     ShellProcessStatus,
     ShellRunResult,
 )
 
 __all__ = ["SandboxExecutor"]
+
+
+class _SandboxProcess(ShellExecution):
+    """已结束的沙箱句柄：execute 返回时 status 已是 completed。"""
+
+    def __init__(self, command, timeout_ms):
+        super().__init__(status=ShellProcessStatus.completed)
+        self.exit_code = 0
+        self._command = command
+        self._timeout_ms = timeout_ms
+
+    def done(self):
+        return self
+
+    def read_output(self):
+        from shell import ShellProcessRead
+
+        return ShellProcessRead(delta="")
+
+    def kill(self):
+        return False
+
+    def result(self):
+        return ShellRunResult(
+            exit_code=0,
+            stdout=f"[sandbox] 已记录命令：{self._command}\n[sandbox] 未真正执行（教学桩）",
+            timeout_ms=self._timeout_ms,
+        )
 
 
 class SandboxExecutor(ShellExecutor):
@@ -42,13 +70,14 @@ class SandboxExecutor(ShellExecutor):
 
     @property
     def sandbox_mode(self):
-        return "sandbox"  # 与 LocalBashExecutor 的 None 形成对照
+        return "sandbox"  # 与 LocalBashExecutor 的 None 形成对照（shell/src/index.ts:74 的同一契约）
 
     def resolve(self, request: ShellExecRequest) -> ShellExecSpec:
         return ShellExecSpec(
             command=request.command,
             workdir=request.workdir or os.getcwd(),
             timeout_ms=request.timeout_ms or 120_000,
+            on_expiry=request.on_expiry,
             stdout_max_bytes=request.stdout_max_bytes or 64 * 1024,
             signal=request.signal,
             stdin=request.stdin,
@@ -57,22 +86,6 @@ class SandboxExecutor(ShellExecutor):
             sandbox_policy=request.sandbox_policy,
         )
 
-    def run(self, spec: ShellExecSpec) -> ShellRunResult:
+    def execute(self, spec: ShellExecSpec) -> ShellExecution:
         self.log.append(spec.command)
-        return ShellRunResult(
-            exit_code=0,
-            stdout=f"[sandbox] 已记录命令：{spec.command}\n[sandbox] 未真正执行（教学桩）",
-            timeout_ms=spec.timeout_ms,
-        )
-
-    def start(self, spec: ShellExecSpec) -> ShellProcess:
-        self.log.append(spec.command)
-        proc = ShellProcess(status=ShellProcessStatus.running)
-        proc.status = ShellProcessStatus.completed
-        proc.exit_code = 0
-
-        def done():
-            return proc
-
-        proc.done = done
-        return proc
+        return _SandboxProcess(spec.command, spec.timeout_ms)

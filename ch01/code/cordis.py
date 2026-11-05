@@ -2,12 +2,12 @@
 
 仅标准库，Python 3.10+。
 
-源码对应（vendor/cordis/src/）：
-- Context                    ↔ context.ts:42
-- Service                    ↔ service.ts:11
-- Fiber                      ↔ fiber.ts:184
-- Context.plugin             ↔ registry.ts:195 plugin(:316)
-- on/emit/serial/waterfall   ↔ events.ts:288/194/204/234
+源码对应（vendor/cordis/src/，上游 HEAD 8bd0733）：
+- Context                    ↔ context.ts:42（Proxy 建于 :74，转发 reflect.ts:143-184）
+- Service / provide          ↔ service.ts:11（注册 :57）；provide reflect.ts:291-327
+- Fiber + effect             ↔ fiber.ts:184；effect :424，逆序回收 :437
+- Context.plugin             ↔ registry.ts:195；plugin :316，形态归一 :222-228
+- on/emit/serial/waterfall   ↔ events.ts:294/203/214/246
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ __all__ = [
 
 
 class Symbols:
-    """对应 vendor/cordis/src/utils.ts:50-73 的 Symbol.for('cordis:*')。
+    """对应 vendor/cordis/src/utils.ts:50-74 的 symbols 对象（Symbol.for('cordis.*')）。
 
     教学版实际使用 services / events / dispose 三个。
     """
@@ -32,7 +32,8 @@ class Symbols:
 class ServiceNotFoundError(AttributeError):
     """读取未提供服务时抛出。
 
-    [教学决策 G1] 继承 AttributeError，使 getattr(ctx, name, default) 的 fallback 仍可用。
+    继承 AttributeError，使 getattr(ctx, name, default) 的 fallback 仍可用。
+    真实源码没有这个错误类型（未提供时 ctx.reflect.get 返回 undefined）。
     """
 
     def __init__(self, name: str):
@@ -40,6 +41,8 @@ class ServiceNotFoundError(AttributeError):
         self.service_name = name
 
 
+# [教学简化] 真实版靠各 fiber 自己的上下文传递「当前宿主」；
+# 教学版同步单线程，用一个模块级变量标记「当前正在激活的 fiber」即可。
 _current_fiber: "Fiber | None" = None
 
 
@@ -50,9 +53,9 @@ class Context:
         setattr(self, Symbols.services, {})    # 服务表：name → 实例
         setattr(self, Symbols.events, {})      # 监听器表：事件名 → [listener]
         setattr(self, Symbols.dispose, False)  # dispose 标记
-        self._fibers: list[Fiber] = []
-        self._pending: list[Fiber] = []
-        self._disposers: list[Callable] = []
+        self._fibers: list[Fiber] = []        # 全部 fiber（按注册顺序）
+        self._pending: list[Fiber] = []       # 依赖未满足，等待加载
+        self._disposers: list[Callable] = []  # 根级 effect 清理函数
 
     # ---------- 服务解析 ----------
 
@@ -66,7 +69,7 @@ class Context:
         raise ServiceNotFoundError(name)
 
     def provide(self, name, value):
-        """注册服务，返回注销 disposer。
+        """注册服务，返回「注销」disposer。
 
         写服务表 → 派发 service/provide → 结算等待依赖的 fiber。
         """
@@ -126,7 +129,12 @@ class Context:
         return None
 
     def waterfall(self, event, value):
-        """把返回值逐个传递：返回 None 放行，非 None 替换当前值。"""
+        """把返回值逐个传递：返回 None 放行，非 None 替换当前值。
+
+        [教学简化] 真实 events.ts:246 把最后一个参数当作最内层 next，
+        监听器签名是 (...args, next)，不调 next 就等于拦截；
+        教学版按「单值串接」简化，第 4 章用 waterfall_wrap 补回中间件语义。
+        """
         for listener in list(getattr(self, Symbols.events).get(event, [])):
             result = listener(value)
             if result is not None:

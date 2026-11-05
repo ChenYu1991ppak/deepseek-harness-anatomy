@@ -38,7 +38,7 @@ def main():
         print(f"  第{turn:>2}轮：累计 tokens = {total:>4} / 窗口 = {context_window}")
 
     print(f"\n→ 第 {turn} 轮后，累计 tokens {total} 已超过窗口 {context_window}。")
-    print("  此刻模型拒绝接收入输入：这一轮之后的对话再也进行不下去。")
+    print("  此刻模型拒绝接收输入：这一轮之后的对话再也进行不下去。")
     print("  而之前说过的所有内容，也因为装不进窗口而无法交给模型。")
     print("\n这就是 compaction 要解决的问题：")
     print("  上下文窗口是有限的，但对话必须继续。")

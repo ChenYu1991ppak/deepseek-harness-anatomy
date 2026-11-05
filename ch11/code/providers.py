@@ -1,14 +1,19 @@
 """第 11 章教学重构：subagent 传输 provider（实现层）。
 
-源码对应：
-- subagent-spawn-in-process ↔ packages/subagent/subagent-spawn-in-process/src/index.ts:41
-- subagent-fork-in-process  ↔ packages/subagent/subagent-fork-in-process/src/index.ts:61
+源码对应（以下路径均相对上游仓库根 /Users/chenyu/PycharmProjects/deepseek-harness）：
+- subagent-spawn-in-process ↔ packages/subagent/subagent-spawn-in-process/src/index.ts:38
+- subagent-fork-in-process  ↔ packages/subagent/subagent-fork-in-process/src/index.ts:60
+- completedTurnPrefix       ↔ packages/subagent/subagent-fork-in-process/src/index.ts:46
 - out-of-process 四兄弟（acp/codex/claude-code/dsh-sdk）
-  ↔ packages/subagent/subagent-acp/src/index.ts:146-149（capabilities 全 false）
-- startInProcessRun ↔ packages/subagent/subagent-in-process-driver/src/index.ts:102
+  ↔ packages/subagent/subagent-acp/src/index.ts:80-83（capabilities 全 false）
+- startLocal（本地激活的建子管线）↔ packages/subagent/subagent/src/manager.ts:294
+- captureLocalResult（结算读取）  ↔ packages/subagent/subagent/src/activation.ts:147
+- resolveChildAgentOptions        ↔ packages/subagent/subagent/src/child-agent.ts:98
+- 挂载                            ↔ packages/bundle/base/cordis.patch.yml:374-381
 
-spawn 与 fork 的差异只有一处：fork 先把父会话的「已完成回合前缀」播种进子会话
-（inherits_parent_context=True），spawn 的子会话从零开始。
+spawn 与 fork 的差异只有一处：fork 先贡献父会话的「已完成回合前缀」作为 seed
+（inherits_parent_context=True），spawn 的子会话从零开始。真实版里这个差异表现为
+prepareContinuable 返回 {} 还是一个 { seed }，建子与会话创建都由 startLocal 完成。
 """
 from __future__ import annotations
 
@@ -21,13 +26,13 @@ from subagent_runtime import (
 
 
 def start_in_process_run(resolved, manager, provider_name):
-    """建 in-process 运行（startInProcessRun 的教学版，subagent-in-process-driver/src/index.ts:102）。
+    """建 in-process 运行（startLocal 的教学版，packages/subagent/subagent/src/manager.ts:294）。
 
     复用第 2 章 AgentLoop.create：sessions.create + ReactLoopAgent + 注册 + session-start 事件，
     子 agent 因此是一个「完整的 agent-loop」，而不是一段裸函数。
     """
     parent = resolved["parent"]
-    # 子的 options 带上深度：子再委派时 delegation_depth_of 读得到（resolveChildAgentOptions，child-agent.ts:68）
+    # 子的 options 带上深度：子再委派时 delegation_depth_of 读得到（resolveChildAgentOptions，child-agent.ts:98）
     child_options = dict(resolved.get("child_options", {}))
     child_options["subagent_depth"] = resolved["child_depth"]
     child = parent.ctx.agent_loop.create(**child_options)
@@ -48,7 +53,7 @@ def seed_prefix(parent_session, child_session):
 class InProcessProvider(SubagentProvider):
     """in-process 传输公共基类：drive 统一为「发任务 → 同步到 idle → 读结算」。
 
-    对应 drivePublishedRun + readResult（subagent-in-process-driver/src/index.ts:154/208）；spawn/fork 的差异只在 create。
+    对应 startLocal 建子之后的投递与 captureLocalResult 结算（packages/subagent/subagent/src/activation.ts:147）；spawn/fork 的差异只在 create。
     """
 
     capabilities = frozenset(ALL_CAPABILITIES)  # in-process 传输支持全部能力
@@ -86,7 +91,7 @@ class AcpStubProvider(SubagentProvider):
 
     真实版经 ctx.subprocess.spawn 起独立 OS 进程（第 6 章）；正因为不在本进程，
     进程内细粒度控制全都做不到，capabilities 全为 false
-    （subagent-acp/src/index.ts:146-149）——带任何特性的请求会在
+    （packages/subagent/subagent-acp/src/index.ts:80-83）——带任何特性的请求会在
     start 之前被 seam 的能力检查拒绝。
     """
 

@@ -1,16 +1,16 @@
 """第 13 章教学重构：lsp 能力 seam —— 扩展名路由 + 原子注册。
 
-源码对应（packages/lsp/lsp/src/index.ts）：
-- Lsp                ↔ index.ts:82（extends Service，注册为 ctx.lsp）
-- routes             ↔ index.ts:84（扩展名 → 路由表）
-- finalExtension     ↔ index.ts:60-67
-- registerProvider   ↔ index.ts:90-141（原子注册：先全量校验，再一次性写表）
-- query              ↔ index.ts:143-149（按扩展名路由，透传 languageId）
-- normalizeExtension ↔ index.ts:153-156
-- LspError           ↔ index.ts:50
+源码对应（上游仓库根起：packages/lsp/lsp/src/index.ts、packages/lsp/lsp/src/types.ts）：
+- Lsp                ↔ packages/lsp/lsp/src/index.ts:82（extends Service，注册为 ctx.lsp）
+- routes             ↔ packages/lsp/lsp/src/index.ts:84（扩展名 → 路由表）
+- finalExtension     ↔ packages/lsp/lsp/src/index.ts:60-67
+- registerProvider   ↔ packages/lsp/lsp/src/index.ts:90-141（原子注册：先全量校验，再一次性写表）
+- query              ↔ packages/lsp/lsp/src/index.ts:143-149（按扩展名路由，透传 languageId）
+- normalizeExtension ↔ packages/lsp/lsp/src/index.ts:153-156
+- LspError           ↔ packages/lsp/lsp/src/index.ts:50
 
 [教学决策] 真实后端是 lsp-stdio（stdio JSON-RPC 启动语言服务器进程）；教学版
-用确定性 mock 提供者，进程/协议细节只出现在正文 §7 源码对应。
+用确定性 mock 提供者，进程/协议细节只出现在正文 §8 源码对照。
 """
 
 import sys
@@ -23,7 +23,7 @@ from cordis import Service  # noqa: E402
 
 
 class LspError(Exception):
-    """lsp seam 的统一错误，带机器可读 code（index.ts:50）。
+    """lsp seam 的统一错误，带机器可读 code（`packages/lsp/lsp/src/index.ts:50`）。
 
     真实错误码含 LSP_INVALID_PROVIDER / LSP_CONFLICT / LSP_UNAVAILABLE /
     LSP_DISPOSED / LSP_UNSUPPORTED_OPERATION / LSP_MALFORMED_RESPONSE。
@@ -35,7 +35,7 @@ class LspError(Exception):
 
 
 class Lsp(Service):
-    """ctx.lsp 服务：扩展名 → 路由表 + 原子注册（index.ts:82）。
+    """ctx.lsp 服务：扩展名 → 路由表 + 原子注册（`packages/lsp/lsp/src/index.ts:82`）。
 
     seam 只管「哪个扩展名归哪个提供者」：
     - register_provider：先全量校验，再一次性写表，失败不留痕
@@ -44,15 +44,15 @@ class Lsp(Service):
 
     def __init__(self, ctx):
         super().__init__(ctx, "lsp")
-        self.routes = {}  # 扩展名 -> (provider, language_id)（index.ts:84）
+        self.routes = {}  # 扩展名 -> (provider, language_id)（`packages/lsp/lsp/src/index.ts:84`）
         self.provider_ids = set()
 
     def register_provider(self, provider):
-        """原子注册：先全量校验，再一次性写表（index.ts:90-141）。
+        """原子注册：先全量校验，再一次性写表（`packages/lsp/lsp/src/index.ts:90-141`）。
 
         三项校验：空 id → LSP_INVALID_PROVIDER；重复 id 或扩展名冲突 →
         LSP_CONFLICT。全部通过后才用一个 ctx.effect 写入 id + 全部扩展名
-        （index.ts:129-138），因此不存在「注册了一半」的中间态。
+        （`packages/lsp/lsp/src/index.ts:130-137`），因此不存在「注册了一半」的中间态。
         """
         if not provider.id:
             raise LspError("LSP_INVALID_PROVIDER", "provider id must be non-empty")
@@ -81,7 +81,7 @@ class Lsp(Service):
         return self.ctx.effect(setup)
 
     def query(self, request):
-        """查询入口：按文件扩展名路由，未命中 → LSP_UNAVAILABLE（index.ts:143-149）。"""
+        """查询入口：按文件扩展名路由，未命中 → LSP_UNAVAILABLE（`packages/lsp/lsp/src/index.ts:143-149`）。"""
         ext = final_extension(request["filePath"])
         route = self.routes.get(ext)
         if route is None:
@@ -97,7 +97,7 @@ class Lsp(Service):
 
 
 def final_extension(file_path):
-    """取最后一个路径分隔符之后的扩展名（index.ts:60-67）。
+    """取最后一个路径分隔符之后的扩展名（`packages/lsp/lsp/src/index.ts:60-67`）。
 
     'a/b.py' → '.py'；'a.d/b' → ''（点在分隔符前，不算）；
     '.hidden' → ''（点开头是隐藏文件，不是扩展名）。
@@ -110,5 +110,5 @@ def final_extension(file_path):
 
 
 def normalize_extension(ext):
-    """扩展名统一小写（index.ts:153-156）。"""
+    """扩展名统一小写（`packages/lsp/lsp/src/index.ts:153-156`）。"""
     return ext.lower()

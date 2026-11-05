@@ -1,9 +1,9 @@
 """第 10 章教学入口：装配 + 完整运行输出。
 
-装配关系（对应 notes §1 seam 三角色）：
+装配关系（对应正文 §4 的 seam 三角色）：
 - SurfaceSessions(ctx)           → ctx.sessions（会话服务，创建 SurfaceSession）
 - LlmRuntime + FakeCompactionAdapter → ctx.llm（LLM 运行时，生成摘要）
-- BasicCompactionEngine(ctx, …)  → ctx.compactionEngine（compaction 提供者）
+- BasicCompactionEngine(ctx, …)  → ctx.compaction（compaction 提供者）
 
 运行：python3 ch10/code/main.py
 """
@@ -14,7 +14,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _CH01 = os.path.abspath(os.path.join(_HERE, "..", "..", "ch01", "code"))
 _CH02 = os.path.abspath(os.path.join(_HERE, "..", "..", "ch02", "code"))
 _CH07 = os.path.abspath(os.path.join(_HERE, "..", "..", "ch07", "code"))
-for _p in (_CH01, _CH02, _CH07):
+for _p in (_HERE, _CH01, _CH02, _CH07):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -32,20 +32,21 @@ from compaction import (  # noqa: E402  (本章)
 
 
 class FakeCompactionAdapter(LlmAdapter):
-    """假 adapter：压缩请求（purpose='compaction'）返回摘要，其余返回普通回复。"""
+    """假 adapter：本章只有摘要一处调用方，收到请求就返回固定摘要文本。
 
-    def provider_info(self):
-        return {"id": "fake", "name": "Fake"}
+    真实源按 `purpose='compaction'`（packages/compaction/compaction-basic/src/summarizer.ts:160）
+    把这类请求标记为辅助调用；教学桩省掉了这层判别，因为演示里没有普通对话请求。
+    """
+
+    def provider_info(self, provider):
+        return {"id": provider, "name": "Fake"}
 
     def stream(self, options):
         messages = options.get("messages", [])
-        if options.get("purpose") == "compaction":
-            # 最后一条是 COMPACTION_INSTRUCTION，其余是压缩区间消息
-            n = len(messages) - 1
-            summary = (f"压缩了 {n} 条对话：讨论了项目方案，"
-                       "确认了技术选型，决定继续推进任务。")
-        else:
-            summary = "这是一条普通回复。"
+        # 最后一条是 COMPACTION_INSTRUCTION，其余是压缩区间消息
+        n = max(len(messages) - 1, 0)
+        summary = (f"压缩了 {n} 条对话：讨论了项目方案，"
+                   "确认了技术选型，决定继续推进任务。")
         yield {"type": "block-start", "index": 0, "block_type": "text"}
         yield {"type": "text-delta", "index": 0, "text": summary}
         yield {"type": "block-end", "index": 0,
@@ -115,10 +116,10 @@ def main():
     ctx = Context()
     SurfaceSessions(ctx)                          # ctx.sessions
     runtime = LlmRuntime()
-    runtime.register_adapter(FakeCompactionAdapter())
+    runtime.register_adapter(["fake"], FakeCompactionAdapter())
     ctx.provide("llm", runtime)                   # ctx.llm
     context_window = 500                          # [教学简化] 缩小窗口便于演示
-    engine = BasicCompactionEngine(ctx, context_window)  # ctx.compactionEngine
+    engine = BasicCompactionEngine(ctx, context_window)  # ctx.compaction
     spec = resolve_compact_spec(context_window)
     print(f"\n装配：context_window={context_window}  "
           f"threshold={spec['threshold']}  retain_tokens={spec['retain_tokens']}")

@@ -5,6 +5,17 @@
 主线：provider 注册（register_provider）→ 分层收集（_collect）→ rank+shadowing 合并
 → 缓存（revision）→ 按需加载（provider.get）→ 模型消费（tool-skill 的 skill 工具 + 会话目录注入）。
 
+本章教学代码共 5 个文件，都在 ch12/code/，与上游包的对应关系见下表。下表各文件 docstring 里
+出现的裸 `index.ts:NNN` 引注，均指该文件自己一栏里的上游路径。
+
+| 教学文件            | 层        | 上游对应（仓库根起）                                       |
+|---|---|---|
+| `main.py`           | 演示入口  | —（把本章机制串成 7 段）                                   |
+| `bad_example.py`    | 反例      | —（无上游对应，用来演示「焊进提示词」的代价）                 |
+| `skill_registry.py` | 定义层    | `packages/skill/skill/src/index.ts`                        |
+| `skill_providers.py`| 实现层    | `packages/experimental/skill-badge/src/index.ts`（实验 provider） + `packages/skill/skill-filesystem/src/index.ts` |
+| `tool_skill.py`     | 消费层    | `packages/skill/tool-skill/src/index.ts`                   |
+
 依赖前章（均经 sys.path 复用，不修改）：
 - ch01/cordis：Context / Service（构造即注册）
 - ch02/agent_loop：Session（会话目录注入的 append-only 事件日志）
@@ -110,7 +121,8 @@ class ReviewBotSkillProvider(SkillProvider):
 
 def main():
     ctx = Context()
-    # 统计 skills/change 事件：注册 / 失效都会广播变更（index.ts:649）。
+    # 统计 skills/change 事件：注册 / 失效都会广播变更
+    # （packages/skill/skill/src/index.ts:648 notifyChange）。
     change_events = []
     ctx.on("skills/change", lambda payload: change_events.append(payload))
     root = Path(tempfile.mkdtemp(prefix="ch12-skills-"))

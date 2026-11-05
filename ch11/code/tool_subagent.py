@@ -1,16 +1,20 @@
 """第 11 章教学重构：subagent 委派工具（消费层）。
 
-源码对应：
+源码对应（以下路径均相对上游仓库根 /Users/chenyu/PycharmProjects/deepseek-harness）：
 - tool-subagent 包 ↔ packages/subagent/tool-subagent/src/index.ts
-  - apply 把 subagent 工具注册进 ctx.tools ↔ index.ts:267
-  - execute 调用 ctx.subagents.start ↔ index.ts:369
+  - apply 把 subagent 工具注册进 ctx.tools ↔ packages/subagent/tool-subagent/src/index.ts:149
+  - execute 构造请求并调 ctx.subagents.startActivation ↔ packages/subagent/tool-subagent/src/index.ts:269 / :321
 - tool-subagent-control 包（send_message / interrupt_agent）
-  ↔ packages/subagent/tool-subagent-control/src/index.ts:27/80
+  ↔ packages/subagent/tool-subagent-control/src/index.ts:46 / :126
+  - send_message → ctx.subagents.sendMessage ↔ 同文件 :81
+  - interrupt_agent → ctx.subagents.interrupt ↔ 同文件 :159
 
 [Educational simplification] 真实版工具参数经 JSON schema 校验；教学版参数是普通 dict。
 [Educational simplification] 真实版的 parent 不来自模型参数，而来自执行上下文
-exec.agent（execute，index.ts:369-370）——谁发起工具调用，谁就是 parent；
+exec.agent（packages/subagent/tool-subagent/src/index.ts:270）——谁发起工具调用，谁就是 parent；
 ch04 的 ToolExecution 不带调用者，教学版由 args["parent"] 显式传入。
+[Educational simplification] 真实版 subagent 工具立即返回 {kind:'activation', subagentId}，
+子 agent 的完成通知另行投递（packages/subagent/tool-subagent/src/index.ts:321）；教学版同步等结算，直接返回结果文本。
 """
 from __future__ import annotations
 
@@ -37,7 +41,7 @@ class SubagentTool:
         self.ctx = ctx
 
     def apply(self):
-        """把工具定义注册进 ctx.tools（apply，index.ts:267），返回注销 disposer。"""
+        """把工具定义注册进 ctx.tools（apply，packages/subagent/tool-subagent/src/index.ts:149），返回注销 disposer。"""
         definition = ToolDefinition(
             name=self.name,
             description="把一个任务委派给子 agent 独立执行，返回它的结果",
@@ -47,7 +51,7 @@ class SubagentTool:
         return self.ctx.tools.register(definition)
 
     def execute(self, args):
-        """工具体：把工具参数翻译成 start 请求（execute，index.ts:369）。
+        """工具体：把工具参数翻译成 start 请求（execute，packages/subagent/tool-subagent/src/index.ts:269）。
 
         返回子 agent 的结算文本——它作为工具结果回到模型上下文，
         主 agent 由此「只拿到结果，不沾过程」。
@@ -61,7 +65,8 @@ class SubagentTool:
 class SubagentControlTool:
     """可续子 agent 的控制工具（tool-subagent-control 的教学版）。
 
-    send_message ↔ followup（index.ts:27）；interrupt_agent ↔ interrupt（index.ts:80）。
+    send_message ↔ sendMessage（packages/subagent/subagent/src/index.ts:321）；
+    interrupt_agent ↔ interrupt（同文件 :345）。
     只有可续委派（start_continuable）产生的存活子 agent 才用得上它们。
     """
 

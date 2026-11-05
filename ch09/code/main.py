@@ -5,7 +5,8 @@
 2. per-agent 作用域注册：writer 铸造自己的作用域，注册同名 echo shadow 全局；
 3. shadowing 生效：同一名字，不同作用域执行到不同实现，defined_in 给出来源；
 4. lineage 作用域链：writer-helper 绑为 writer 的子作用域，继承 writer + 全局的注册；
-5. restriction：给 writer 单调禁用 read_file——writer 看不见，子作用域仍可见（不继承）；
+5. restriction：链上过滤——writer 限制 read_file，writer-helper 继承来的 read_file 一并消失；
+   但 writer 自己注册的 echo 豁免自己的限制（父级限制沿链生效，不反向传播）；
 6. 注册即效应：register 返回 disposer，调用即注销；ctx.dispose() 全部回收。
 
 运行：python3 main.py
@@ -99,12 +100,18 @@ def main():
     print("   writer-helper view（继承 writer + 全局）:",
           [d.name for d in runtime.view("writer-helper")])
 
-    # ── 5. restriction：exact-scope 单调黑名单，不继承 ──
+    # ── 5. restriction：过滤「继承来的」工具，自己的注册豁免；沿链传给后代 ──
     runtime.restrict(["read_file"], scope="writer")
     print("5. restrict 后 writer view:", [d.name for d in runtime.view("writer")])
-    print("   restrict 后 writer-helper view（不受父级限制影响）:",
+    print("   restrict 后 writer-helper view（祖先限制沿链生效）:",
           [d.name for d in runtime.view("writer-helper")])
     print("   restrict 后全局 view:", [d.name for d in runtime.view()])
+    # echo 是 writer 自己注册的：自己层豁免自己的 restriction，仍然可见；
+    # 但 writer-helper 继承来的 echo 被挡住
+    runtime.restrict(["echo"], scope="writer")
+    print("   再 restrict echo 后 writer view:", [d.name for d in runtime.view("writer")])
+    print("   再 restrict echo 后 writer-helper view:",
+          [d.name for d in runtime.view("writer-helper")])
 
     # ── 6. 注册即效应：disposer 注销 ──
     dispose_temp = runtime.register(ToolDefinition(

@@ -9,7 +9,7 @@
     {"op": "disable",  "id": ...}                  # 按 id 禁用某个 entry
 
 [教学简化] 真实的 cordis.patch.yml 是「顶层 YAML 数组，元素为 PatchOptions」
-（packages/boot/app-boot/src/index.ts:320 parsePatchList 解析，允许 !!js 内联函数）；
+（packages/boot/app-boot/src/index.ts:571 parsePatchList 解析，允许 !!js 内联函数）；
 教学版用 Python dict + op 字段表达同一语义，只保留 insert/override/disable 三种。
 
 本章题眼：patch 是「对已有配置的增量修改」，不是另一份独立配置——
@@ -26,7 +26,7 @@ def apply_entry_patches(entries, patches):
     """把一批 patch 依序作用到 entry 列表上，返回新列表（不改原列表）。
 
     对应真实代码：include 的 applyEntryPatches——profile 栈拍平成 entry 列表的最后一步
-    （packages/boot/app-boot/src/profile.ts:413 composeEntries 调用它）。
+    （packages/boot/app-boot/src/profile.ts:755 composeEntries 调用它）。
 
     实现要点：
     - 先浅拷贝每个 entry，保证「patch 作用在副本上」，原列表不被污染；
@@ -46,7 +46,8 @@ def apply_entry_patches(entries, patches):
         elif op == "override":
             target = by_id.get(patch["id"])
             if target is not None:                # 定向不到就跳过（幂等、不报错）
-                # 浅合并 config：只覆盖写明的键，其余键保留——这正是「增量」而非「整段替换」
+                # [教学简化] 真实 patch 整段替换该 entry 的 config（base/cordis.patch.yml:6）；
+                # 这里按 key 浅合并，只为让 §1 的 lang 留存可见——真实写法必须把 lang 也写上
                 target["config"] = {**target["config"], **patch["config"]}
         elif op == "disable":
             target = by_id.get(patch["id"])

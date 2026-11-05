@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "DeepSeek Harness (dsh) — 17-Chapter Progressive Roadmap",
+    "title": "DeepSeek Harness (dsh) 18-Chapter Progressive Roadmap",
     "locale": "en",
     "quality_profile": "showcase",
     "viewBox": [
@@ -42,8 +42,8 @@
     {
       "id": "ch03",
       "type": "database",
-      "label": "Ch3 · Session Persistence",
-      "sublabel": "Event log",
+      "label": "Ch3 · Session Event Stream",
+      "sublabel": "Handle persistence",
       "pos": [
         700,
         40
@@ -56,8 +56,8 @@
     {
       "id": "ch04",
       "type": "backend",
-      "label": "Ch4 · Tools Pipeline",
-      "sublabel": "Registry + guard",
+      "label": "Ch4 · Tools Registry",
+      "sublabel": "Executor pipeline",
       "pos": [
         40,
         150
@@ -183,7 +183,7 @@
       "id": "ch13",
       "type": "backend",
       "label": "Ch13 · Web & LSP",
-      "sublabel": "Retrieval + code",
+      "sublabel": "Retrieval + exclusivity",
       "pos": [
         700,
         550
@@ -239,9 +239,23 @@
       "id": "ch17",
       "type": "backend",
       "label": "Ch17 · Workflow E2E",
-      "sublabel": "Ralph loop",
+      "sublabel": "PTC runtime",
       "pos": [
         370,
+        660
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch18",
+      "type": "backend",
+      "label": "Ch18 · Telemetry Channel",
+      "sublabel": "Empty service · two queues",
+      "pos": [
+        700,
         660
       ],
       "size": [
@@ -296,6 +310,13 @@
       "wraps": [
         "ch16",
         "ch17"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Cross-cutting close · ch18",
+      "wraps": [
+        "ch18"
       ]
     }
   ],
@@ -383,6 +404,11 @@
       "id": "p16-17",
       "from": "ch16",
       "to": "ch17"
+    },
+    {
+      "id": "p17-18",
+      "from": "ch17",
+      "to": "ch18"
     },
     {
       "id": "x07-10",

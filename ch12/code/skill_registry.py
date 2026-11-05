@@ -3,27 +3,31 @@
 仅标准库，Python 3.10+。运行：python3 main.py
 
 源码对应（packages/skill/skill/src/index.ts）：
-- SkillSummary / SkillCandidate / SkillDefinition 词汇类型 ↔ index.ts:56 / :74 / :86
-- SkillProvider 契约 { name, list(), get() }              ↔ index.ts:248
-- SkillLayer（一个作用域的 provider 注册表）                ↔ index.ts:328
-- SkillRegistry extends Service（super(ctx,'skills')）      ↔ index.ts:357 / :374-375
-- register_provider                                        ↔ index.ts:391
-- list / snapshot / get                                    ↔ index.ts:471 / :482 / :501
-- collect 分层合并（global + scope 链，近层遮蔽远层）         ↔ index.ts:552-566
-- collect_layer 同层 rank 去重（小者胜）                    ↔ index.ts:568-586
-- 缓存与失效（revision + invalidate + skills/change）        ↔ index.ts:622 / :649
-- declare('skills')（cordis.Context.skills 扩展）           ↔ index.ts:284-287
+- SkillSummary / SkillCandidate / SkillDefinition 词汇类型 ↔ index.ts:57 / :77 / :87
+- SkillProvider 契约 { name, list(), get() }              ↔ index.ts:247
+- SkillLayer（一个作用域的 provider 注册表）                ↔ index.ts:327
+- SkillRegistry extends Service（super(ctx,'skills')）      ↔ index.ts:356 / :373-374
+- register_provider                                        ↔ index.ts:390
+- list / snapshot / get                                    ↔ index.ts:470 / :481 / :500
+- collect 分层合并（global + scope 链，近层遮蔽远层）         ↔ index.ts:551-565
+- collectLayer 同层 rank 去重（小者胜）                     ↔ index.ts:567-582
+- 缓存与失效（revision + invalidate + skills/change）        ↔ index.ts:621 / :648
+- declare('skills')（cordis.Context.skills 扩展）           ↔ index.ts:283-286
 
 [教学决策 1] skill seam 是「provider 注册表」型 seam：多个 provider 并存注册进分层注册表，
 读取时按 scope 分层 + 同层 rank 合并去重；对照第 5 章 shell 的「方法调用式 / 组合期二选一」seam。
 分层 shadowing 规则（近层同名覆盖远层、同层 rank 决胜）复用第 9 章 ScopedLayers，
-即类文档所言「the host+per-scope shape the tools registry established」（index.ts:346-355）。
-[教学简化 1] 真实 SkillProvider 还有 watch(callback) 变更订阅与不透明 locator（index.ts:264-267）；
-教学版去掉 watch，用手动 invalidate 触发缓存刷新，正文定位退化为 provider 自持。
-[教学简化 2] 真实 invocationPolicy 是 {model, user} 各 allow/deny/ask（index.ts:48）；
-教学版用 model_invocable / user_invocable 两个布尔。
-[教学简化 3] 真实 collectLayer 排序键为 rank→providerOrder→localOrder→name（compareIndexedCandidates）；
-教学版同层只按 rank（小者胜），稳定排序使注册序成为同 rank 的隐式次级键。
+即类文档所言「the host+per-scope shape the tools registry established」（index.ts:344-355，
+该文档还写明「an agent preset's standing composition lands in that preset's layer」）。
+[教学简化 1] 真实 SkillProvider 没有 watch(callback)：变更订阅改由注册表交给 provider 的
+control.invalidate 回调 + control.signal 生命期（index.ts:270-276），filesystem provider
+自带 SkillWatchManager 主动触发；教学版把它压成手动 invalidate，正文定位退化为 provider 自持
+（真实候选携带不透明 locator，index.ts:77-82）。
+[教学简化 2] 真实 invocation 是 { modelInvocable, userInvocable } 两个布尔
+（SkillInvocationPolicy，index.ts:49-54）；教学版把二者摊平成 SkillDefinition 上的
+两个字段，省略了 isModelInvocable / isUserInvocable 两个读取函数（index.ts:126 / :135）。
+[教学简化 3] 真实 collectLayer 排序键为 rank→providerOrder→localOrder（compareIndexedCandidates，
+index.ts:569 / :807-811）；教学版同层只按 rank（小者胜），稳定排序使注册序成为同 rank 的隐式次级键。
 """
 from __future__ import annotations
 
@@ -32,11 +36,11 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-# 复用第 1 章：Service 构造即注册（cordis.py:271-284）。
+# 复用第 1 章：Service 构造即注册（cordis.py:248-252）。
 _CH01 = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "ch01", "code"))
 if _CH01 not in sys.path:
     sys.path.insert(0, _CH01)
-# 复用第 9 章：ScopedLayers 分层容器（scope.py:104）。
+# 复用第 9 章：ScopedLayers 分层容器（scope.py:28）。
 _CH09 = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "ch09", "code"))
 if _CH09 not in sys.path:
     sys.path.insert(0, _CH09)
@@ -45,7 +49,8 @@ from scope import ScopedLayers  # noqa: E402
 
 
 # ---------- rank 阶梯（同层内小者胜） ----------
-# 真实阶梯跨三层常量（skill-filesystem/src/index.ts:36-40 + skill/src/index.ts:24,27）：
+# 真实阶梯跨两个文件（packages/skill/skill-filesystem/src/index.ts:35-39 +
+# packages/skill/skill/src/index.ts:25 / :28）。数值越小越优先，按优先级从高到低：
 #   project-dsh(100) > project-agents(200) > runtime(250) > custom(300)
 #     > user-dsh(400) > user-agents(500) > bundled(600)
 # [教学简化 4] 教学版只取阶梯两端：项目技能 100（高优先）、内置技能 600（低优先）。
@@ -58,7 +63,7 @@ BUNDLED_SKILL_RANK = 600
 
 @dataclass(frozen=True)
 class SkillSummary:
-    """目录条目：渲染用元数据，无正文（index.ts:56）。list() 返回它。"""
+    """目录条目：渲染用元数据，无正文（index.ts:57）。list() 返回它。"""
 
     name: str
     description: str
@@ -68,7 +73,7 @@ class SkillSummary:
 
 @dataclass(frozen=True)
 class SkillCandidate(SkillSummary):
-    """候选：Summary + 同层优先级 rank（index.ts:74）。provider.list() 返回它。
+    """候选：Summary + 同层优先级 rank（index.ts:77）。provider.list() 返回它。
 
     [教学简化 1] 真实候选还有不透明 locator（供 get 定位正文）；教学版由 provider 自持定位。
     """
@@ -78,35 +83,37 @@ class SkillCandidate(SkillSummary):
 
 @dataclass(frozen=True)
 class SkillDefinition:
-    """完整定义：带正文，按需加载（index.ts:86）。provider.get() 返回它。"""
+    """完整定义：带正文，按需加载（index.ts:87）。provider.get() 返回它。"""
 
     name: str
     provider: str
     content: str
     source: str = "bundled"
     description: str = ""
-    model_invocable: bool = True  # [教学简化 2] 真实为 invocation.model ∈ allow/deny/ask
-    user_invocable: bool = True   # [教学简化 2] 真实为 invocation.user ∈ allow/deny/ask
+    model_invocable: bool = True  # [教学简化 2] 真实为 invocation.modelInvocable（index.ts:49-54）
+    user_invocable: bool = True   # [教学简化 2] 真实为 invocation.userInvocable（index.ts:49-54）
 
 
 class SkillProvider(ABC):
-    """skill provider 契约（index.ts:248）：list() 出候选、get() 按候选加载全文。
+    """skill provider 契约（index.ts:247）：list() 出候选、get() 按候选加载全文。
 
     这是「provider 注册表」型 seam 的实现侧接口：多个实现并存注册，注册表读取时
     合并去重；而不是第 5 章 shell 那种「组合期选定唯一实现」的方法调用式 seam。
-    [教学简化 1] 真实契约还有 watch(callback) 变更订阅；教学版省略，靠手动 invalidate。
+    [教学简化 1] 真实契约没有 watch 方法：注册表在 registerProvider 时把
+    control.invalidate / control.signal 交给 provider（index.ts:270-276），
+    provider 自行择机触发失效；教学版省略 control，靠手动 invalidate。
     """
 
     name: str = ""
 
     @abstractmethod
     def list(self) -> list[SkillCandidate]:
-        """列出本 provider 的候选（元数据，无正文）（index.ts:252）。"""
+        """列出本 provider 的候选（元数据，无正文）（index.ts:251）。"""
         raise NotImplementedError
 
     @abstractmethod
     def get(self, candidate: SkillCandidate) -> SkillDefinition | None:
-        """按候选加载完整定义（含正文）（index.ts:258）。"""
+        """按候选加载完整定义（含正文）（index.ts:257）。"""
         raise NotImplementedError
 
 
@@ -114,14 +121,17 @@ class SkillProvider(ABC):
 
 
 class SkillLayer:
-    """一个作用域的 skill 贡献：一张有序 provider 表（index.ts:328）。
+    """一个作用域的 skill 贡献：一张有序 provider 表（index.ts:327）。
 
     与第 9 章 ToolLayer 同形——都是 scope 名下的容器；
     不同在于这里装的是 provider（而非单个工具）。
+    真实 SkillLayer 还带一张 runtime 技能表（index.ts:330-331，注册表自己 `register()`
+    的直注册技能，不是 provider）与一张空层判定 `isEmpty()`（index.ts:339-342）；
+    教学版省略。
     """
 
     def __init__(self):
-        # 以 dict 保序存放 provider：插入序 = 注册序，对应真实 NamedEntries 的 providerOrder。
+        # 以 dict 保序存放 provider：插入序 = 注册序，对应真实 RegisteredProvider.order（index.ts:313）。
         self.providers: dict[str, SkillProvider] = {}
 
 
@@ -129,27 +139,30 @@ class SkillLayer:
 
 
 class SkillRegistry(Service):
-    """ctx.skills：分层 skill provider 注册表（index.ts:357）。
+    """ctx.skills：分层 skill provider 注册表（index.ts:356）。
 
     复用第 9 章 ScopedLayers：global 层 + 每作用域叠加层 + 父链 lineage，
-    即「the host+per-scope shape the tools registry established」（index.ts:346-355）。
+    即「the host+per-scope shape the tools registry established」（index.ts:344-355）。
     读取合并 global + 观察 scope 链：近层同名整体遮蔽远层，同层内 rank 决胜（小者胜）。
     """
 
     def __init__(self, ctx, config=None):
-        super().__init__(ctx, "skills")  # 构造即注册到 ctx.skills（cordis.py:271-284）
-        self.layers = ScopedLayers(SkillLayer)  # 分层容器（index.ts:363）
+        super().__init__(ctx, "skills")  # 构造即注册到 ctx.skills（cordis.py:248-252）
+        self.layers = ScopedLayers(SkillLayer)  # 分层容器（index.ts:362）
         self._list_cache: dict = {}      # scope -> [SkillSummary]
         self._get_cache: dict = {}       # (scope, name) -> SkillDefinition | None
         self._snapshot_cache: dict = {}  # scope -> {providers, skills}
-        self._revision = 0               # 失效计数，对应真实 revision（index.ts:368）
+        self._revision = 0               # 失效计数，对应真实 revision（index.ts:367）
 
     # ---- 注册侧 ----
 
     def register_provider(self, provider: SkillProvider, scope=None):
-        """把 provider 注册进 scope 对应层（index.ts:391）。注册是 effect：返回 disposer。
+        """把 provider 注册进 scope 对应层（index.ts:390）。注册是 effect：返回 disposer。
 
         scope 为 None 落 global 层（宿主级）；否则落该作用域叠加层。
+        [教学简化] 真实 registerProvider 收工厂 (control) => provider，只拒绝保留名
+        runtime（index.ts:406-408）；同层重名由 layer.providers.insert 抛出
+        （index.ts:414 → packages/core/scope/src/store.ts:45）。
         """
         layer = self.layers.for_scope(scope)
         if provider.name in layer.providers:
@@ -159,7 +172,7 @@ class SkillRegistry(Service):
         self.invalidate()
 
         def dispose():
-            # 撤销注册并再次失效，对应真实 disposer（undo insert + invalidateCache）。
+            # 撤销注册并再次失效，对应真实 disposer（undo insert + layer 变更通知）。
             layer.providers.pop(provider.name, None)
             self.invalidate()
 
@@ -168,7 +181,11 @@ class SkillRegistry(Service):
     # ---- 读取侧 ----
 
     def list(self, scope=None) -> list[SkillSummary]:
-        """合并目录：取胜者 Summary，按名排序（index.ts:471），带缓存。"""
+        """合并目录：取胜者 Summary，按名排序（index.ts:470 list → snapshot:481），带缓存。
+
+        真实 `list()` 只是 `snapshot().skills` 的薄壳，缓存键还带 cwd 与 scope 链
+        （collectCacheKey，index.ts:519-549）；教学版按 scope 单键缓存。
+        """
         if scope in self._list_cache:
             return self._list_cache[scope]
         merged = self._collect(scope)
@@ -186,7 +203,7 @@ class SkillRegistry(Service):
         return summaries
 
     def get(self, name: str, scope=None) -> SkillDefinition | None:
-        """按名加载取胜者的完整定义（含正文）（index.ts:501），带缓存。"""
+        """按名加载取胜者的完整定义（含正文）（index.ts:500），带缓存。"""
         key = (scope, name)
         if key in self._get_cache:
             return self._get_cache[key]
@@ -197,7 +214,7 @@ class SkillRegistry(Service):
         return definition
 
     def snapshot(self, scope=None) -> dict:
-        """{providers, skills} 快照（index.ts:482）。"""
+        """{providers, skills} 快照（index.ts:481，对应真实 SkillCatalogSnapshot）。"""
         if scope in self._snapshot_cache:
             return self._snapshot_cache[scope]
         snap = {
@@ -210,7 +227,7 @@ class SkillRegistry(Service):
     # ---- 失效 ----
 
     def invalidate(self):
-        """清空全部读缓存并广播 skills/change（index.ts:622 + :649）。"""
+        """清空全部读缓存并广播 skills/change（index.ts:621 + :648）。"""
         self._revision += 1
         self._list_cache.clear()
         self._get_cache.clear()
@@ -220,14 +237,14 @@ class SkillRegistry(Service):
     # ---- 分层合并（内部） ----
 
     def _layer_chain(self, scope):
-        """生效层链：global 打底 + scope 父链（祖先在前、最近层在后）（index.ts:557）。"""
+        """生效层链：global 打底 + scope 父链（祖先在前、最近层在后）（index.ts:556，对应 collectFresh 里的 layers 数组）。"""
         layers = [self.layers.global_layer]
         if scope is not None:
             layers.extend(self.layers.chain_layers(scope))
         return layers
 
     def _collect(self, scope) -> dict:
-        """跨层合并：层链由远及近遍历，近层同名覆盖远层（shadowing）（index.ts:552-566）。"""
+        """跨层合并：层链由远及近遍历，近层同名覆盖远层（shadowing）（index.ts:551-565 collectFresh）。"""
         merged: dict = {}
         for layer in self._layer_chain(scope):
             for name, entry in self._collect_layer(layer).items():
@@ -235,7 +252,7 @@ class SkillRegistry(Service):
         return merged
 
     def _collect_layer(self, layer: SkillLayer) -> dict:
-        """单层：汇齐各 provider 候选，按 rank 排序（小者胜），同名去重（index.ts:568-586）。"""
+        """单层：汇齐各 provider 候选，按 rank 排序（小者胜），同名去重（index.ts:567-582 collectLayer）。"""
         indexed = []
         for provider in layer.providers.values():
             for candidate in provider.list():
@@ -256,6 +273,6 @@ class SkillRegistry(Service):
         return sorted(merged)
 
 
-# declare('skills')（index.ts:284-287）的教学对应：SkillRegistry(ctx) 构造时经
-# Service.__init__ → ctx.provide("skills", self) 自动绑定 ctx.skills（cordis.py:279-284），
+# declare('skills')（index.ts:283-286）的教学对应：SkillRegistry(ctx) 构造时经
+# Service.__init__ → ctx.provide("skills", self) 自动绑定 ctx.skills（cordis.py:248-252），
 # 与第 4 章 ToolRuntime(ctx)、第 9 章 ScopedToolRuntime(ctx) 同一路数。

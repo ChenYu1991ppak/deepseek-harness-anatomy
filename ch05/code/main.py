@@ -4,10 +4,11 @@
 
 演示段落：
 1. 装配容器 + 三角色就位（Definition=shell.py / Provider=bash_local.py / Consumer=tool_bash.py）
-2. 前台 run：resolve → run，输出尾部带 [exit code: N] marker
-3. 后台 start：立即返回 running 句柄，再 done() 收敛
-4. 换 provider：ctx.shell 换成 SandboxExecutor，消费者 tool-bash 与定义一行不改
-5. 与第 4 章事件瀑布式管线的正交对照
+2. 前台：resolve → execute → result()，成功时输出尾部不带 marker
+3. 非零退出：尾部带 [exit code: N] marker
+4. 后台：execute 立即返回 running 句柄，由调用方自己 read_output / kill
+5. 换 provider：ctx.shell 换成 SandboxExecutor，消费者 tool-bash 与定义一行不改
+6. 与第 4 章事件瀑布式管线的正交对照
 """
 import os
 import sys
@@ -61,20 +62,27 @@ def main():
     bash_section = next(s for s in ctx.systemPrompt.assemble().sections if s.name == "tool:bash")
     print("    " + bash_section.text.replace("\n", "\n    "))
 
-    # -- 2. 前台 run --
-    print("\n== 2. 前台 run：resolve → run ==")
+    # -- 2. 前台：成功路径不写 marker --
+    print("\n== 2. 前台 execute → result()：成功不写 marker ==")
     out = run_bash(ctx, "echo hello-from-shell-seam")
     print(out)
     parsed = parse_exit_status(out)
-    print(f"  [解析 marker] body={parsed.body!r} exit_code={parsed.exit_code}")
+    print(f"  [解析 marker] body={parsed.body!r} exit_code={parsed.exit_code}（无 marker 兜底 0）")
 
-    # -- 3. 后台 start --
-    print("\n== 3. 后台 start：立即返回 running 句柄 ==")
+    # -- 3. 非零退出：写 [exit code: N] --
+    print("\n== 3. 非零退出：写 [exit code: N] marker ==")
+    out_fail = run_bash(ctx, "echo boom >&2; exit 3")
+    print(out_fail)
+    parsed_fail = parse_exit_status(out_fail)
+    print(f"  [解析 marker] body={parsed_fail.body!r} exit_code={parsed_fail.exit_code}")
+
+    # -- 4. 后台：句柄立即返回 --
+    print("\n== 4. 后台 execute：立即返回 running 句柄 ==")
     out2 = run_bash(ctx, "sleep 0.05 && echo background-done", run_in_background=True)
     print("  " + out2)
 
-    # -- 4. 换 provider：消费者一行不改 --
-    print("\n== 4. 换 provider：ctx.shell 换成 SandboxExecutor ==")
+    # -- 5. 换 provider：消费者一行不改 --
+    print("\n== 5. 换 provider：ctx.shell 换成 SandboxExecutor ==")
     ctx2 = _assemble(lambda c: SandboxExecutor(c))
     print("  ctx2.shell =", type(ctx2.shell).__name__)
     print("  ctx2.shell.sandbox_mode =", ctx2.shell.sandbox_mode)
@@ -82,9 +90,9 @@ def main():
     print(out3)
     print("  同一消费者 tool_bash 与定义 ShellExecutor 均未改一行。")
 
-    # -- 5. 正交对照 --
-    print("\n== 5. 方法调用式 seam vs 事件瀑布式管线 ==")
-    print("  shell seam：三个抽象方法（resolve/run/start），消费者直接方法调用")
+    # -- 6. 正交对照 --
+    print("\n== 6. 方法调用式 seam vs 事件瀑布式管线 ==")
+    print("  shell seam：两个抽象方法（resolve/execute），消费者直接方法调用")
     print("  tools 管线：tools/pre-execute → tools/execute → tools/post-execute，事件瀑布")
     print("  二者正交：bash 工具体的 execute 正是 tools 管线里的一个 tool body")
 

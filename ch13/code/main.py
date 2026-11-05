@@ -10,7 +10,7 @@
   tool-web / tool-lsp 把工具注册进 ctx.tools
 
 [教学决策] 提供者全部是确定性 mock 实现（无网络、无语言服务器进程），
-输出可复现；真实提供者见正文 §7 源码对应。
+输出可复现；真实提供者见正文 §8 源码对照。
 """
 
 import sys
@@ -112,7 +112,7 @@ def main():
                 "https://docs.example/missing", "https://docs.example/logo.png"):
         try:
             page = web.fetch({"url": url})
-            print(f"  {url} -> [{page['status']}] body.kind={page['body']['kind']}")
+            print(f"  {url} -> [{page['statusCode']}] body.kind={page['body']['kind']}")
         except WebError as err:
             print(f"  {url} -> {err.code}")
 

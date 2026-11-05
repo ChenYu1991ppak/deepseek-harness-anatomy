@@ -1,13 +1,14 @@
 """第 16 章教学重构：JSON-RPC SDK（packages/sdk）。
 
 源码对应：
-- JsonRpcLineTransport        ↔ JsonRpcLineTransport（sdk/protocol/src/transport.ts:62）
-- request / -32601 / -32603   ↔ request（transport.ts:121）
-- SERVER_REQUESTS             ↔ HarnessSdkRequestMap（sdk/protocol/src/types.ts:101）
-- SERVER_NOTIFICATIONS        ↔ HarnessSdkNotificationMap（sdk/protocol/src/types.ts:93，共 4 个）
-- HarnessSdkJsonRpcServer     ↔ HarnessSdkJsonRpcServer（sdk/server/src/server.ts:53）
-- HarnessClient               ↔ HarnessClient（sdk/client/src/client.ts:184）
-- DeepSeekHarness / HarnessSession ↔ DeepSeekHarness / HarnessSession（sdk/client/src/api.ts:22/:132）
+- JsonRpcLineTransport        ↔ packages/sdk/protocol/src/transport.ts:65
+- request / notify            ↔ packages/sdk/protocol/src/transport.ts:126 / :164
+- SERVER_REQUESTS             ↔ HarnessSdkRequestMap（packages/sdk/protocol/src/types.ts:210，共 8 个）
+- SERVER_NOTIFICATIONS        ↔ HarnessSdkNotificationMap（packages/sdk/protocol/src/types.ts:194，共 6 个）
+- HarnessSdkJsonRpcServer     ↔ packages/sdk/server/src/server.ts:89
+- HarnessClient               ↔ packages/sdk/client/src/client.ts:190（start :219、close :488）
+- DeepSeekHarness / HarnessSession ↔ packages/sdk/client/src/api.ts:21 / :225
+- finalResponse               ↔ packages/sdk/client/src/api.ts:373
 
 [教学简化] 真实传输是 stdio 上的换行分隔 JSON-RPC 2.0，客户端 spawn 子进程；
 教学版用两个进程内对象模拟双向管道，保留协议三要素：「一行一个 JSON 对象」
@@ -22,23 +23,29 @@ __all__ = [
     "DeepSeekHarness", "HarnessSdkJsonRpcServer",
 ]
 
-# JSON-RPC 2.0 稳定错误码（transport.ts:121：无 handler 返回 -32601，失败返回 -32603）
+# JSON-RPC 2.0 稳定错误码（packages/sdk/protocol/src/transport.ts:126：
+# 无 handler 返回 -32601，失败返回 -32603）
 METHOD_NOT_FOUND = -32601
 INTERNAL_ERROR = -32603
 
-# 服务端三个请求 ↔ HarnessSdkRequestMap（types.ts:101）
-SERVER_REQUESTS = ("initialize", "session.prompt", "shutdown")
-# 真实有 4 个通知 ↔ HarnessSdkNotificationMap（types.ts:93）。
-# [教学决策] 笔记未枚举通知名，下面四个名字是教学示意名，非源码原名。
+# 服务端请求 ↔ HarnessSdkRequestMap（packages/sdk/protocol/src/types.ts:210，HEAD 共 8 个：
+# initialize / session/prompt / session/query / session/resume / session/wait /
+# session/working-directory/get / -set / shutdown）。wire 上的方法名带斜杠。
+# [教学简化] 教学版只演示其中三个。
+SERVER_REQUESTS = ("initialize", "session/prompt", "shutdown")
+# 真实有 6 个通知 ↔ HarnessSdkNotificationMap（packages/sdk/protocol/src/types.ts:194）。
+# [教学简化] 教学版只演示「开始 / 分块 / 完成 / 出错」这一组示意名，非源码原名。
 SERVER_NOTIFICATIONS = ("session.started", "session.chunk", "session.finished", "session.error")
 
 
 class JsonRpcLineTransport:
-    """换行分隔的 JSON-RPC 2.0 ↔ JsonRpcLineTransport（transport.ts:62）。
+    """换行分隔的 JSON-RPC 2.0 ↔ JsonRpcLineTransport
+    （packages/sdk/protocol/src/transport.ts:65）。
 
     一行 = 一个 JSON 对象：带 method + id 是请求，只有 method 是通知，
     带 id 无 method 是响应；响应沿同一条线回来，按 id 匹配。
-    [教学简化] 真实是 stdio 异步 I/O，request 支持 AbortSignal（transport.ts:121）；
+    [教学简化] 真实是 stdio 异步 I/O，request 支持 AbortSignal
+    （packages/sdk/protocol/src/transport.ts:126）；
     教学版是进程内同步调用，没有超时与中止。
     """
 
@@ -66,7 +73,8 @@ class JsonRpcLineTransport:
     # ---------- 发送侧 ----------
 
     def request(self, method, params=None):
-        """发请求并等待按 id 匹配的响应 ↔ request（transport.ts:121）。"""
+        """发请求并等待按 id 匹配的响应 ↔ request
+        （packages/sdk/protocol/src/transport.ts:126）。"""
         req_id = f"req_{next(self._seq)}"
         line = json.dumps({"jsonrpc": "2.0", "id": req_id, "method": method,
                            "params": params or {}}, ensure_ascii=False)
@@ -104,7 +112,7 @@ class JsonRpcLineTransport:
     def _handle_request(self, message):
         handler = self._handlers.get(message["method"])
         if handler is None:
-            # 无 handler 返回 -32601（transport.ts:121）
+            # 无 handler 返回 -32601（packages/sdk/protocol/src/transport.ts:126）
             self._reply(message["id"], error={"code": METHOD_NOT_FOUND,
                                               "message": f"method not found: {message['method']}"})
             return
@@ -126,19 +134,25 @@ class JsonRpcLineTransport:
 
 
 class HarnessSdkJsonRpcServer:
-    """服务端插件 ↔ HarnessSdkJsonRpcServer（server.ts:53）。
+    """服务端插件 ↔ HarnessSdkJsonRpcServer（packages/sdk/server/src/server.ts:89）。
 
-    三个请求：initialize（server.ts:111，挂载 fallback adapter）/
-    session.prompt（:132）/ shutdown（:150，优雅退出）。
+    教学版演示三个请求：initialize / session/prompt / shutdown。
+    ↔ handleRequest（packages/sdk/server/src/server.ts:499）的分派 switch。
     """
+
+    # wire 方法名 → 处理方法（真实代码是 switch，教学版用表，名字一一对应）
+    HANDLERS = {
+        "initialize": "_initialize",
+        "session/prompt": "_session_prompt",
+        "shutdown": "_shutdown",
+    }
 
     def __init__(self, transport, prompt_handler):
         self.transport = transport
         self._prompt_handler = prompt_handler  # text -> chunk 序列（教学版的模型流）
         self.initialized = False
         for method in SERVER_REQUESTS:
-            handler = getattr(self, "_" + method.replace(".", "_"))
-            transport.on_request(method, handler)
+            transport.on_request(method, getattr(self, self.HANDLERS[method]))
 
     def _initialize(self, params):
         self.initialized = True
@@ -152,7 +166,7 @@ class HarnessSdkJsonRpcServer:
         for chunk in chunks:
             self.transport.notify("session.chunk", {"text": chunk})
         self.transport.notify("session.finished", {"chunks": len(chunks)})
-        # ↔ finalResponse（api.ts:236）：最终响应聚合
+        # ↔ finalResponse（packages/sdk/client/src/api.ts:373）：最终响应聚合
         return {"finalResponse": "".join(chunks)}
 
     def _shutdown(self, params):
@@ -161,9 +175,10 @@ class HarnessSdkJsonRpcServer:
 
 
 class HarnessClient:
-    """子进程客户端 ↔ HarnessClient（client.ts:184）。
+    """子进程客户端 ↔ HarnessClient（packages/sdk/client/src/client.ts:190）。
 
-    [教学简化] 真实 start() spawn 子进程并走 stdio（client.ts:203）；教学版直接
+    [教学简化] 真实 start() spawn 子进程并走 stdio
+    （packages/sdk/client/src/client.ts:219）；教学版直接
     连进程内服务端，只保留「destroy() 按 EOF → SIGTERM → SIGKILL 阶梯走，
     对端已退出就不再升级」这一可观察行为。
     """
@@ -176,7 +191,7 @@ class HarnessClient:
         self._peer_closed = False
 
     def start(self):
-        """↔ HarnessClient.start（client.ts:203）：建立传输，挂起服务端。"""
+        """↔ HarnessClient.start（packages/sdk/client/src/client.ts:219）：建立传输，挂起服务端。"""
         server_transport = JsonRpcLineTransport("server")
         self._make_server(server_transport)
         self.transport.connect(server_transport)
@@ -192,7 +207,9 @@ class HarnessClient:
         return result
 
     def destroy(self):
-        """销毁阶梯：EOF → SIGTERM → SIGKILL（client.ts:184），对端已退出即停止升级。"""
+        """销毁阶梯：EOF → SIGTERM → SIGKILL
+        （packages/sdk/client/src/client.ts:488 close → performClose），
+        对端已退出即停止升级。"""
         for step in ("EOF", "SIGTERM", "SIGKILL"):
             self.destroy_trace.append(step)
             if self._peer_closed:
@@ -203,7 +220,7 @@ class HarnessClient:
 
 
 class DeepSeekHarness:
-    """高层 API ↔ DeepSeekHarness（api.ts:22）：懒启动，管整个生命周期。"""
+    """高层 API ↔ DeepSeekHarness（packages/sdk/client/src/api.ts:21）：懒启动，管整个生命周期。"""
 
     def __init__(self, make_server):
         self._client = HarnessClient(make_server)
@@ -228,7 +245,7 @@ class DeepSeekHarness:
 
 
 class HarnessSession:
-    """会话 API ↔ HarnessSession（api.ts:132）。"""
+    """会话 API ↔ HarnessSession（packages/sdk/client/src/api.ts:225）。"""
 
     def __init__(self, client):
         self._client = client
@@ -236,7 +253,7 @@ class HarnessSession:
     def prompt(self, text):
         """发一次 prompt：返回 finalResponse 与本次收到的 chunk 列表。"""
         before = len(self._client.notifications)
-        result = self._client.request("session.prompt", {"text": text})
+        result = self._client.request("session/prompt", {"text": text})
         chunks = [params["text"] for name, params in self._client.notifications[before:]
                   if name == "session.chunk"]
         return {"finalResponse": result["finalResponse"], "chunks": chunks}

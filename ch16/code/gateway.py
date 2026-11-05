@@ -1,13 +1,24 @@
-"""第 16 章教学重构：RPC 网关（packages/api/gateway）。
+"""第 16 章教学重构：RPC 网关（上游 packages/api/gateway）。
 
-源码对应：
-- RpcConnection            ↔ connection.rpc.intercept('/api', …)（api/gateway/src/index.ts:104-111）
-- TypertGatewayService     ↔ TypertGatewayService（api/gateway/src/index.ts:90）
-- LookupStore              ↔ LookupStore（typert/registry/src/service.ts:216）
-- GATEWAY_ERROR_CODES      ↔ TypertGatewayErrorCode（api/gateway/src/types.ts:19-36）
+文件映射（行号按 HEAD 8bd0733 核对）：
+- RpcConnection            ↔ packages/api/gateway/src/index.ts:248-255（connection.rpc.intercept('/api', …)）
+- TypertGatewayService     ↔ packages/api/gateway/src/index.ts:214
+- claimsEndpoint           ↔ packages/api/gateway/src/index.ts:380
+- dispatchRpc / invokeRpc  ↔ packages/api/gateway/src/index.ts:491 / :771
+- invoke / prepareInvocation ↔ packages/api/gateway/src/index.ts:424 / :793
+- resolveDescriptor        ↔ packages/api/gateway/src/index.ts:878
+- resolveSrcDescriptor / srcDescriptor ↔ packages/api/gateway/src/index.ts:891 / :919
+- resolveReceiverContext   ↔ packages/api/gateway/src/index.ts:1014
+- resolveParameter         ↔ packages/api/gateway/src/index.ts:1062
+- assertExactArguments     ↔ packages/api/gateway/src/index.ts:1630
+- decode / assertJsonValue ↔ packages/api/gateway/src/index.ts:1680 / :1704
+- rpcFailure               ↔ packages/api/gateway/src/index.ts:1516
+- LookupStore              ↔ packages/typert/registry/src/service.ts:220
+- GATEWAY_ERROR_CODES      ↔ packages/api/gateway/src/types.ts:124-145
 
-[教学简化] 真实网关拦截的是 HTTP/JSON-RPC 请求（authority 'trusted-host'）；
-教学版用进程内函数调用模拟同一条「拦截 → 认领 → 派发」链路。
+[教学简化] 真实网关拦截的是 HTTP/JSON-RPC 连接，带 Peer 身份与访问控制
+（inject 里另有 'remoteAccess'）；教学版用进程内函数调用模拟同一条
+「拦截 → 认领 → 派发」链路，省掉 Peer 与权限判定。
 """
 from __future__ import annotations
 
@@ -29,14 +40,16 @@ __all__ = [
     "TypertGatewayService", "remote",
 ]
 
-# 17 个稳定错误码 ↔ TypertGatewayErrorCode（types.ts:19-36），逐一对应
+# 21 个稳定错误码 ↔ TypertGatewayErrorCode（packages/api/gateway/src/types.ts:124-145），逐一对应。
+# [教学简化] 真实码带 "gateway/" 前缀；教学版去掉前缀，正文里仍按裸名讨论。
 GATEWAY_ERROR_CODES = (
     "ambiguous-endpoint", "arguments-invalid", "binding-invalid",
     "context-failed", "context-not-found", "context-unavailable",
-    "definition-unavailable", "input-invalid", "invocation-unavailable",
-    "lookup-failed", "lookup-not-found", "lookup-unavailable",
-    "method-unavailable", "provider-mismatch", "result-invalid",
-    "service-unavailable", "signature-invalid",
+    "definition-unavailable", "input-invalid", "interactions-forbidden",
+    "invocation-unavailable", "lookup-failed", "lookup-not-found",
+    "lookup-unavailable", "method-unavailable", "peer-disposed",
+    "protocol", "provider-mismatch", "result-invalid",
+    "service-unavailable", "signature-invalid", "uplink-overflow",
 )
 
 
@@ -64,7 +77,7 @@ class RpcConnection:
     """[教学简化] 模拟 connection.rpc：intercept(prefix, claim, dispatch)。
 
     真实是 HTTP/JSON-RPC 连接，网关以 authority 'trusted-host' 拦截全部
-    /api/* 端点（index.ts:104-111）；教学版用进程内调用，保留「先认领、
+    /api/* 端点（packages/api/gateway/src/index.ts:248-255）；教学版用进程内调用，保留「先认领、
     后派发」两步——没有人认领的端点直接拒绝。
     """
 
@@ -90,7 +103,7 @@ class RpcConnection:
 
 
 class LookupStore:
-    """lookup provider ↔ LookupStore（service.ts:216）：宿主对象按身份登记。
+    """lookup provider ↔ LookupStore（packages/typert/registry/src/service.ts:220）：宿主对象按身份登记。
 
     宿主对象（如一个 agent 实例）无法跨进程；wire 上只传身份字段（字符串），
     网关在调用前把身份换回宿主对象（见 TypertGatewayService._resolve_parameter）。
@@ -112,9 +125,11 @@ class LookupStore:
 
 
 class TypertGatewayService(Service):
-    """RPC 网关 ↔ TypertGatewayService（index.ts:90），@typert service typertGateway。
+    """RPC 网关 ↔ TypertGatewayService（packages/api/gateway/src/index.ts:214），
+    @typert service typertGateway。
 
-    inject = ['typert']：只依赖注册表契约（ctx.typert），不依赖 typert 包的实现。
+    inject = ['typert', 'remoteAccess']：只依赖注册表契约（ctx.typert）与访问控制服务，
+    不依赖 typert 包的实现。[教学简化] 教学版只注入 typert，省掉 remoteAccess。
     """
 
     inject = ["typert"]
@@ -124,13 +139,13 @@ class TypertGatewayService(Service):
         self.connection = connection
         self.lookups = LookupStore()
         self._src = {}  # namespace -> 对象（typertRemote 绑定，SRC 弱解析路径用）
-        # 拦截全部 /api 端点（index.ts:104-111；真实 authority 为 'trusted-host'）
+        # 拦截全部 /api 端点（packages/api/gateway/src/index.ts:248-255）
         connection.intercept("/api", self._claims_endpoint, self._dispatch)
 
     # ---------- 认领与路由 ----------
 
     def _claims_endpoint(self, endpoint):
-        """是否认领该端点 ↔ claimsEndpoint（index.ts:99-120 摘录）。
+        """是否认领该端点 ↔ claimsEndpoint（packages/api/gateway/src/index.ts:380）。
 
         端点必须恰为两段（namespace/method）；注册表 local 查得到、或曾经
         注册过（hasSeen）、或 SRC 绑定存在，才认领。
@@ -152,7 +167,8 @@ class TypertGatewayService(Service):
     def _dispatch(self, endpoint, payload):
         """把 'namespace/method' + payload 组装成 InvokeRemoteRequest 再走 invoke。
 
-        ↔ InvokeRemoteRequest（types.ts:7）：namespace / method / args（教学版省去 signal）。
+        ↔ invokeRpc（packages/api/gateway/src/index.ts:771）：namespace / method / args
+        （教学版省去 signal 与 Peer）。
         """
         namespace, _, method = endpoint.partition("/")
         return self.invoke({"namespace": namespace, "method": method, "args": payload})
@@ -160,7 +176,8 @@ class TypertGatewayService(Service):
     # ---------- 一次 invoke ----------
 
     def invoke(self, request):
-        """↔ invoke（index.ts:145）：解析描述符 → 校验参数 → 取接收者 → 执行 → 校验结果。
+        """↔ invoke（packages/api/gateway/src/index.ts:424）→ prepareInvocation（:793）：
+        解析描述符 → 校验参数 → 取接收者 → 执行 → 校验结果。
 
         五步全部通过才返回业务结果；任一步失败都抛带稳定错误码的 GatewayError。
         """
@@ -181,10 +198,10 @@ class TypertGatewayService(Service):
     def _resolve_descriptor(self, endpoint):
         """两条描述符解析路径：
 
-        - strict：查注册表 local ↔ resolveDescriptor（index.ts:224）；
+        - strict：查注册表 local ↔ resolveDescriptor（packages/api/gateway/src/index.ts:878）；
         - SRC 弱解析：typertRemote 绑定 + @remote 标记 + 签名反射 ↔
-          resolveSrcDescriptor（:237）+ srcDescriptor（:265）。真实代码用
-          Function.prototype.toString 反射参数名，教学版用 inspect.signature。
+          resolveSrcDescriptor（:891）+ srcDescriptor（:919）+ methodParameterNames（:1586）。
+          真实代码用 Function.prototype.toString 反射参数名，教学版用 inspect.signature。
         """
         descriptor = self.ctx.typert.get(endpoint)
         if descriptor is not None:
@@ -202,7 +219,8 @@ class TypertGatewayService(Service):
                                     method=method, parameters=params, result=CODEC_SRC_JSON)
 
     def _resolve_receiver(self, descriptor):
-        """取接收者 ↔ resolveReceiverContext（index.ts:359）+ ctx.get(descriptor.service)。"""
+        """取接收者 ↔ resolveReceiverContext（packages/api/gateway/src/index.ts:1014）
+        + ctx.get(descriptor.service)。"""
         if descriptor.service == "":
             return self._src[descriptor.namespace]  # SRC 路径：接收者就是绑定对象本身
         try:
@@ -211,7 +229,8 @@ class TypertGatewayService(Service):
             raise GatewayError("service-unavailable", f"服务未提供: {descriptor.service}")
 
     def _assert_exact_arguments(self, args, descriptor):
-        """↔ assertExactArguments（index.ts:586）：参数名必须与描述符完全一致 + JSON 安全边界。
+        """↔ assertExactArguments（packages/api/gateway/src/index.ts:1630）：
+        参数名必须与描述符完全一致 + JSON 安全边界。
 
         拼错、多传、漏传都在边界被拦下，不会被拖进业务代码深处才炸。
         """
@@ -224,14 +243,16 @@ class TypertGatewayService(Service):
             self._assert_json_value(value, name)
 
     def _assert_json_value(self, value, label, code="arguments-invalid"):
-        """JSON 安全边界 ↔ assertJsonValue（index.ts:640）：只有可 JSON 序列化的值能上 wire。"""
+        """JSON 安全边界 ↔ assertJsonValue（packages/api/gateway/src/index.ts:1704）：
+        只有可 JSON 序列化的值能上 wire。"""
         try:
             json.dumps(value, ensure_ascii=False)
         except (TypeError, ValueError):
             raise GatewayError(code, f"{label} 不是 JSON 安全值")
 
     def _resolve_parameter(self, param, args):
-        """↔ resolveParameter（index.ts:407）：普通参数直传；lookup 参数把身份换回宿主对象。"""
+        """↔ resolveParameter（packages/api/gateway/src/index.ts:1062）：
+        普通参数直传；lookup 参数把身份换回宿主对象。"""
         value = args[param.name]
         if param.lookup is not None:
             return self.lookups.resolve(param.lookup, value)

@@ -1,11 +1,13 @@
 """第 15 章：profile + boot——把 bundle 串成「栈」，再把栈拍平成 entry 列表。
 
-真实结构（notes §5）：
-- profile 是 $DSH_HOME/profiles/<name> 目录，package.json 的 dsh.profile.bundles
-  是「有序的 bundle 名单」，外加用户自己的一份 cordis.patch.yml；
-- loadProfile（profile.ts:371）按序把每个 bundle 的 patch 叠起来，用户 patch 是最上层；
-- composeEntries（profile.ts:413）用 applyEntryPatches 把叠好的 patch 拍平成 entry 列表；
-- boot（app-boot/src/index.ts:757）把 entry 列表挂进 context 并断言全部激活。
+源码对应（完整路径，均相对目标仓库根 /Users/chenyu/PycharmProjects/deepseek-harness）：
+- profile 是 $DSH_HOME/profiles/<name> 目录（packages/boot/app-boot/src/profile.ts:39
+  PROFILES_DIR、:165 resolveProfileDir），package.json 的 dsh.profile.bundles
+  是「有序的 bundle 名单」，外加用户自己的一份 cordis.patch.yml；（profile.ts:174）
+- loadProfile（profile.ts:728）按序读每个 bundle 的 patch 层；
+- composeEntries（profile.ts:755）用 applyEntryPatches 把叠好的 patch 拍平成 entry 列表；
+- boot（packages/boot/app-boot/src/index.ts:1200）挂整棵树后跑
+  auditStartupEntries（index.ts:1153），失败抛 StartupError（index.ts:1004）。
 
 教学版把「栈」建模为有序的 bundle 名单 + 用户 patch；boot 简化为「激活未禁用条目」。
 """
@@ -24,8 +26,9 @@ class Profile:
 def load_profile(profile, bundle_registry):
     """把 profile 叠成一串 patch：每个 bundle 贡献一层，用户 patch 压在最上层。
 
-    对应 loadProfile（profile.ts:371）：读 dsh.profile.bundles，逐个 resolveBundleDir
-    取出 cordis.patch.yml，层层叠加；用户 ~/.dsh/profiles/<name>/cordis.patch.yml 最后。
+    对应 loadProfile（profile.ts:728）→ loadProfileDirectory（profile.ts:678）：
+    读 dsh.profile.bundles，逐个 resolveBundleDir 取出 cordis.patch.yml，层层叠加；
+    用户 $DSH_HOME/profiles/<name>/cordis.patch.yml 是最上层（profile.ts:174 的模板）。
     返回的列表顺序 = 应用顺序（栈底 → 栈顶）。
     """
     stacked = []
@@ -39,7 +42,7 @@ def load_profile(profile, bundle_registry):
 def compose_entries(base_entries, stacked_patches):
     """boot 的第一步：把叠好的 patch 拍平成最终 entry 列表。
 
-    对应 composeEntries（profile.ts:413）：从 base 配置出发，依次应用栈里全部 patch。
+    对应 composeEntries（profile.ts:755）：从 base 配置出发，依次应用栈里全部 patch。
     """
     return apply_entry_patches(base_entries, stacked_patches)
 
@@ -47,8 +50,9 @@ def compose_entries(base_entries, stacked_patches):
 def boot(entries):
     """boot 的第二步：加载并激活「未被禁用」的 entry，返回被激活的 entry。
 
-    [教学简化] 真实 boot（index.ts:757）是：new Context → ctx.plugin(Loader) →
-    mountRootInclude 挂整树 → loader.await() → assertEntriesActivated 断言全部激活。
+    [教学简化] 真实 boot（index.ts:1200）是：new Context → provide('dshHomePath') →
+    ctx.plugin(Loader) → mountRootInclude（index.ts:738）挂整树 → loader.await() →
+    auditStartupEntries（index.ts:1153），失败即 dispose 整个 fiber 并抛 StartupError。
     教学版只保留「跳过 disabled、激活其余」这一可观察行为。
     """
     activated = []

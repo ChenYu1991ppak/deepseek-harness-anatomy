@@ -2,25 +2,39 @@
 
 仅标准库，Python 3.10+。运行：python3 main.py
 
-源码对应：
-- SubagentRuntime（seam 类）      ↔ packages/subagent/subagent/src/index.ts:171
-- registerProvider ↔ index.ts:369；getProvider ↔ :392；expectProvider ↔ :449；list ↔ :400
-- start（一次性入口）↔ index.ts:414；startContinuable ↔ :212；followup ↔ :231；interrupt ↔ :255
-- assertCapabilities ↔ index.ts:481；assertSubagentMaxDepth ↔ depth.ts:42
-- emitLifecycle（subagent/start、subagent/end）↔ packages/subagent/subagent/src/lifecycle.ts:100
-- readResult（finalAssistantOutput + toStopReason）↔ subagent-in-process-driver/src/index.ts:208
-- completedTurnPrefix ↔ subagent-fork-in-process/src/index.ts:48
-- SubagentRun / SubagentRunInfo ↔ types.ts:249/36；SubagentProvider 契约 ↔ types.ts:285
-- delegationDepthOf ↔ depth.ts:28；resolveChildDepth ↔ child-agent.ts:48；
-  childSessionMeta ↔ child-agent.ts:102
+源码对应（以下路径均相对上游仓库根 /Users/chenyu/PycharmProjects/deepseek-harness）：
+- SubagentRuntime（seam 类）       ↔ packages/subagent/subagent/src/index.ts:189
+- providers Map                    ↔ packages/subagent/subagent/src/index.ts:195
+- registerProvider                 ↔ packages/subagent/subagent/src/index.ts:475
+- getProvider                      ↔ packages/subagent/subagent/src/index.ts:501
+- expectProvider                   ↔ packages/subagent/subagent/src/index.ts:513
+- startActivation（一次性入口）     ↔ packages/subagent/subagent/src/index.ts:261
+- sendMessage / interrupt          ↔ packages/subagent/subagent/src/index.ts:321 / :345
+- assertCapabilities               ↔ packages/subagent/subagent/src/index.ts:533
+- assertSubagentMaxDepth           ↔ packages/subagent/subagent/src/depth.ts:42
+- createLifecycleEmitter           ↔ packages/subagent/subagent/src/lifecycle.ts:40
+- subagent/start、subagent/end 边  ↔ packages/subagent/subagent/src/manager.ts:826 / :1013
+- readResult 的等价实现            ↔ packages/subagent/subagent/src/activation.ts:147
+  （captureLocalResult + finalAssistantOutput assistant-output.ts:67 + epochStopReason lifecycle.ts:81（均在 packages/subagent/subagent/src/ 下））
+- completedTurnPrefix              ↔ packages/subagent/subagent-fork-in-process/src/index.ts:46
+- SubagentRun / SubagentRunEndInfo / SubagentRunInfo ↔ packages/subagent/subagent/src/types.ts:276/96/76
+- SubagentProvider 契约            ↔ packages/subagent/subagent/src/types.ts:302
+- delegationDepthOf                ↔ packages/subagent/subagent/src/depth.ts:28
+- resolveChildDepth                ↔ packages/subagent/subagent/src/child-agent.ts:49
+- resolveChildAgentOptions         ↔ packages/subagent/subagent/src/child-agent.ts:98
+- childSessionMeta                 ↔ packages/subagent/subagent/src/child-agent.ts:135
+- listChildren                     ↔ packages/subagent/subagent/src/list-children.ts:31
 
-[Educational simplification] 真实版是异步管线：start 返回带 Promise 的 run 句柄，
-observeRun 订阅结算（lifecycle.ts:133）；教学版同步——start() 把子 agent 驱动到完成才返回。
-[Educational simplification] 真实版把子会话 lineage meta 写进会话持久 meta（session.header）；
+[Educational simplification] 真实版是异步管线：startActivation 返回时子 agent 刚建好，
+SubagentRun.result 是 Promise（types.ts:286）；教学版同步——start() 把子 agent 驱动到完成才返回。
+[Educational simplification] 真实版把子会话 lineage meta 写进会话持久 header（childSessionMeta）；
 ch02 的 Session 没有 header 字段，教学版改存 SubagentManager.session_meta 表（以会话 id 为键）。
-[Educational decision G1] 真实版 provider 契约是单个 start（返回 run 句柄）；教学版同步化后
-拆成 create（建子 agent）+ drive（驱动到完成），seam 在两步之间广播 start/end，
-事件次序与真实版 observeRun「立即 start → 等结算 → end」一致。
+[Educational decision G1] 真实版 provider 契约是 start（外部执行）与 prepareContinuable（只贡献 seed）
+两个可选方法；教学版同步化后拆成 create（建子 agent）+ drive（驱动到完成），seam 在两步之间
+广播 start/end，事件次序与真实版「立即 start → 等结算 → end」一致。
+[Educational simplification] 真实版没有 listProviders，也没有 startContinuable / waitForIdle 这两个方法：
+可续子 agent 由 startActivation + prepareContinuable 建出、由 ContinuationManager 持有，
+整棵树的工作汇合叫 waitForTreeWork（packages/subagent/subagent/src/index.ts:304）。教学版保留更直白的名字。
 """
 from __future__ import annotations
 
@@ -36,7 +50,7 @@ if _CH01 not in sys.path:
 from cordis import Service  # noqa: E402
 
 # 能力白名单：in-process 传输全部支持；out-of-process 传输全部为 false
-# （subagent-acp/src/index.ts:146-149）。
+# （packages/subagent/subagent-acp/src/index.ts:80-83）。
 ALL_CAPABILITIES = ("output_schema", "depth_limit", "tool_filter", "persona")
 
 # 请求字段 -> 所需能力：请求用到某字段，provider 必须声明对应能力（assertCapabilities 逐项检查）。
@@ -60,7 +74,7 @@ class SubagentError(Exception):
 
 
 class SubagentDepthError(SubagentError):
-    """委派深度超过 max_depth（resolveChildDepth 抛出，child-agent.ts:54）。"""
+    """委派深度超过 max_depth（resolveChildDepth 抛出，child-agent.ts:55）。"""
 
     def __init__(self, child_depth, max_depth):
         super().__init__(
@@ -71,14 +85,14 @@ class SubagentDepthError(SubagentError):
 
 @dataclass(frozen=True)
 class SubagentResult:
-    """一次运行的结算结果（readResult，subagent-in-process-driver/src/index.ts:208）：子 agent 最终 assistant 输出 + 停止原因。"""
+    """一次运行的结算结果（captureLocalResult，packages/subagent/subagent/src/activation.ts:147）：子 agent 最终 assistant 输出 + 停止原因。"""
 
     text: str         # finalAssistantOutput：子会话里最后一条 assistant/message 的文本
     stop_reason: str  # toStopReason：end_turn / max_depth / killed ……
 
 
 class SubagentRunContext:
-    """一次运行的身份与结算状态（SubagentRun + SubagentRunInfo 的教学版，types.ts:249/36）。
+    """一次运行的身份与结算状态（SubagentRun + SubagentRunInfo 的教学版，packages/subagent/subagent/src/types.ts:276/76）。
 
     真实版 SubagentRun.result 是 Promise（异步结算）；教学版同步：
     start 返回时 status 已是 completed/killed，result 已就位。
@@ -96,7 +110,7 @@ class SubagentRunContext:
 
 
 class SubagentProvider(ABC):
-    """传输 provider 契约（types.ts:285）：name + capabilities + inherits_parent_context + create/drive。
+    """传输 provider 契约（packages/subagent/subagent/src/types.ts:302）：name + capabilities + inherits_parent_context + create/drive。
 
     inherits_parent_context：子 agent 是否继承父上下文（spawn=False，fork=True）。
     [Educational decision G1] 真实版是单个 start；教学版同步化后拆为 create + drive。
@@ -120,7 +134,7 @@ class SubagentProvider(ABC):
 
 
 class SubagentRegistry:
-    """provider 注册表（SubagentRuntime 的 providers Map，index.ts:172）。
+    """provider 注册表（SubagentRuntime 的 providers Map，packages/subagent/subagent/src/index.ts:195）。
 
     注册是可逆效应：register_provider 返回注销 disposer（第 1 章 ctx.effect），
     与第 5 章 capability seam 的注册面同一范式。
@@ -131,7 +145,7 @@ class SubagentRegistry:
         self._providers = {}
 
     def register_provider(self, provider):
-        """按名注册 + 重名拒绝 + 效应回滚（registerProvider，index.ts:369）。"""
+        """按名注册 + 重名拒绝 + 效应回滚（registerProvider，packages/subagent/subagent/src/index.ts:475）。"""
         name = provider.name
         if name in self._providers:
             raise SubagentError("DUPLICATE_PROVIDER", f"provider 重名: {name}")
@@ -145,19 +159,19 @@ class SubagentRegistry:
         return self.ctx.effect(lambda: unregister)
 
     def expect_provider(self, name):
-        """按名取 provider，缺失抛 UNKNOWN_PROVIDER（expectProvider，index.ts:449）。"""
+        """按名取 provider，缺失抛 UNKNOWN_PROVIDER（真实版 NO_PROVIDER，expectProvider packages/subagent/subagent/src/index.ts:513）。"""
         provider = self._providers.get(name)
         if provider is None:
             raise SubagentError("UNKNOWN_PROVIDER", f"未注册的 provider: {name}")
         return provider
 
     def list_providers(self):
-        """按字典序列出已注册 provider 名（list，index.ts:400）。"""
+        """列出已注册 provider 名（教学便利：真实版没有 listProviders，名字只进 provider-added 事件）。"""
         return sorted(self._providers)
 
 
 def assert_capabilities(provider, request):
-    """能力检查（assertCapabilities，index.ts:481）：请求用到的每个特性，provider 必须声明对应能力。
+    """能力检查（assertCapabilities，packages/subagent/subagent/src/index.ts:533）：请求用到的每个特性，provider 必须声明对应能力。
 
     缺能力抛 UNSUPPORTED_CAPABILITY——检查发生在 provider.start 之前，
     out-of-process provider（能力全 false）因此被挡在启动之外。
@@ -170,13 +184,13 @@ def assert_capabilities(provider, request):
 
 
 def assert_max_depth_value(max_depth):
-    """max_depth 必须是正整数（assertSubagentMaxDepth，depth.ts:42）。"""
+    """max_depth 必须是非负整数（assertSubagentMaxDepth，packages/subagent/subagent/src/depth.ts:42）。"""
     if not isinstance(max_depth, int) or isinstance(max_depth, bool) or max_depth < 1:
         raise SubagentError("INVALID_REQUEST", f"max_depth 必须是正整数，实际为 {max_depth!r}")
 
 
 def delegation_depth_of(agent, session_meta):
-    """agent 所处委派深度：会话 lineage meta 与 options 取大者（delegationDepthOf，depth.ts:28）。
+    """agent 所处委派深度：会话 lineage meta 与 options 取大者（delegationDepthOf，packages/subagent/subagent/src/depth.ts:28）。
 
     运行时只能加深、不能减小 agent 的委派深度（单调下界，depth.ts:20-23）。
     真实版读 session.header.delegationDepth；ch02 的 Session 没有 header 字段，
@@ -189,7 +203,7 @@ def delegation_depth_of(agent, session_meta):
 
 
 def resolve_child_depth(parent, max_depth, session_meta):
-    """子深度 = 父深度 + 1，超过 max_depth 抛 SubagentDepthError（resolveChildDepth，child-agent.ts:48）。"""
+    """子深度 = 父深度 + 1，超过 max_depth 抛 SubagentDepthError（resolveChildDepth，packages/subagent/subagent/src/child-agent.ts:49）。"""
     child_depth = delegation_depth_of(parent, session_meta) + 1
     if child_depth > max_depth:
         raise SubagentDepthError(child_depth, max_depth)
@@ -197,7 +211,7 @@ def resolve_child_depth(parent, max_depth, session_meta):
 
 
 def child_session_meta(parent, child_depth):
-    """子会话 lineage meta（childSessionMeta，child-agent.ts:102）：父会话 / origin / 深度。"""
+    """子会话 lineage meta（childSessionMeta，packages/subagent/subagent/src/child-agent.ts:135）：父会话 / origin / 深度。"""
     return {
         "parent_session": parent.session.id,
         "origin": "subagent",
@@ -206,7 +220,7 @@ def child_session_meta(parent, child_depth):
 
 
 def completed_turn_prefix(session):
-    """已完成回合前缀：截至（含）最后一个 turn/end 的全部事件（completedTurnPrefix，subagent-fork-in-process/src/index.ts:48）。
+    """已完成回合前缀：截至（含）最后一个 turn/end 的全部事件（completedTurnPrefix，packages/subagent/subagent-fork-in-process/src/index.ts:46）。
 
     fork 传输用它给子会话播种：子 agent 创建时就「记得」父会话已完成的历史。
     """
@@ -220,7 +234,7 @@ def completed_turn_prefix(session):
 
 
 def read_result(session):
-    """从子会话读结算结果（readResult，subagent-in-process-driver/src/index.ts:208）：最后一条 assistant 输出 + 停止原因。
+    """从子会话读结算结果（captureLocalResult，packages/subagent/subagent/src/activation.ts:147）：最后一条 assistant 输出 + 停止原因。
 
     assistant/message 的 payload 形如 {"message": {"content": [{"type": "text", "text": ...}]}}
     （ch02 的 create_assistant_message，agent_loop.py:186）；此处把所有 text 块拼回文本。
@@ -235,7 +249,7 @@ def read_result(session):
 
 
 class SubagentManager(Service):
-    """ctx.subagents seam：注册表 + 运行生命周期（SubagentRuntime 的教学版，index.ts:171）。
+    """ctx.subagents seam：注册表 + 运行生命周期（SubagentRuntime 的教学版，packages/subagent/subagent/src/index.ts:189）。
 
     [Educational simplification] 真实版异步（start 返回 run 句柄，observeRun 等结算）；
     教学版同步：start() 在子 agent 结算后才返回。
@@ -253,7 +267,7 @@ class SubagentManager(Service):
     # ---------- 注册面 ----------
 
     def register_provider(self, provider):
-        """委托给注册表（registerProvider，index.ts:369）。"""
+        """委托给注册表（registerProvider，packages/subagent/subagent/src/index.ts:475）。"""
         return self.registry.register_provider(provider)
 
     def list_providers(self):
@@ -262,7 +276,7 @@ class SubagentManager(Service):
     # ---------- 一次性（one-shot） ----------
 
     def start(self, provider_name, request):
-        """一次性委派（start，index.ts:414）：校验 → 建子 → 广播 start → 驱动到完成 → 广播 end。
+        """一次性委派（startActivation，packages/subagent/subagent/src/index.ts:261）：校验 → 建子 → 广播 start → 驱动到完成 → 广播 end。
 
         返回结算后的 SubagentRunContext（真实版返回带 Promise 的 run 句柄；教学版同步已结算）。
         """
@@ -280,7 +294,7 @@ class SubagentManager(Service):
     # ---------- 可续（continuable） ----------
 
     def start_continuable(self, provider_name, request):
-        """可续委派（startContinuable，index.ts:212）：建子但不驱动，run 存活等待消息。
+        """可续委派（真实版是 startActivation + provider.prepareContinuable，packages/subagent/subagent/src/index.ts:273-279）：建子但不驱动，run 存活等待消息。
 
         [Educational simplification] 真实版由 ContinuationManager 管理存活子 agent；
         教学版直接把 run 留在 runs 表里。
@@ -292,13 +306,13 @@ class SubagentManager(Service):
         return run.id
 
     def followup(self, run_id, message):
-        """向存活子 agent 发一条消息并驱动一轮（followup，index.ts:231 ↔ send_message 工具）。"""
+        """向存活子 agent 发一条消息并驱动一轮（sendMessage，packages/subagent/subagent/src/index.ts:321 ↔ send_message 工具）。"""
         run = self._expect_run(run_id)
         run.child_agent.followup(message)          # ch02：send + wake_driver，同步驱动到 idle
         return read_result(run.child_agent.session)
 
     def kill(self, run_id):
-        """中断并结算存活子 agent（interrupt，index.ts:255 ↔ interrupt_agent 工具）。
+        """中断并结算存活子 agent（interrupt，packages/subagent/subagent/src/index.ts:345 ↔ interrupt_agent 工具）。
 
         [Educational simplification] 真实版 interrupt 走驱动器的 abort 路径；ch02 的
         ReactLoopAgent 没有 abort 态，教学版的 kill 即「从 agent 注册表移除 + 结算 run」，
@@ -325,11 +339,11 @@ class SubagentManager(Service):
     # ---------- 生命周期与谱系 ----------
 
     def announce(self, event, payload):
-        """生命周期广播（emitLifecycle，lifecycle.ts:100）：subagent/* 事件统一经 ctx.emit 发出。"""
+        """生命周期广播（createLifecycleEmitter，packages/subagent/subagent/src/lifecycle.ts:40）：subagent/* 事件统一经 ctx.emit 发出。"""
         self.ctx.emit(event, payload)
 
     def list_children(self, session_id):
-        """沿 lineage 找子会话（listChildren，index.ts:339）。
+        """沿 lineage 找子会话（listChildren，packages/subagent/subagent/src/list-children.ts:31）。
 
         [Educational simplification] 真实版在 scope 内沿 lineage 发现（第 9 章）；
         教学版直接扫 session_meta lineage 表。
@@ -340,7 +354,7 @@ class SubagentManager(Service):
     # ---------- 内部 ----------
 
     def _prepare(self, provider_name, request):
-        """启动前校验（index.ts:415-417）：expectProvider → assertCapabilities → 深度校验与解析。"""
+        """启动前校验（packages/subagent/subagent/src/index.ts:262-267）：expectProvider → assertCapabilities → 深度校验与解析。"""
         provider = self.registry.expect_provider(provider_name)
         assert_capabilities(provider, request)
         max_depth = request.get("max_depth", DEFAULT_MAX_DEPTH)

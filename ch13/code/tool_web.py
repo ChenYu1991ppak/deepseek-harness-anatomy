@@ -1,11 +1,12 @@
 """第 13 章教学重构：tool-web —— 把 web_search / web_fetch 暴露给模型。
 
 源码对应（packages/web/tool-web/src/search.ts / fetch.ts）：
-- applyWebSearchTool     ↔ search.ts:210-274（systemPrompt.section order:110 + defineTool web_search）
-- applyWebFetchTool      ↔ fetch.ts:429-495（section order:111 + defineTool web_fetch）
-- execute                ↔ search.ts:259-264 / fetch.ts:479-484（只调 ctx.web.search/fetch）
-- formatSearchOutput     ↔ search.ts:54-75
-- WEB_SEARCH_MAX_RESULTS ↔ search.ts:20（=8）
+- applyWebSearchTool     ↔ packages/web/tool-web/src/search.ts:344-415（systemPrompt.section + defineTool web_search）
+- applyWebFetchTool      ↔ packages/web/tool-web/src/fetch.ts:449-516（section order:111 + defineTool web_fetch）
+- execute                ↔ packages/web/tool-web/src/search.ts:403-414 /
+                             packages/web/tool-web/src/fetch.ts:501-516（只调 ctx.web.search/fetch）
+- formatSearchOutput     ↔ packages/web/tool-web/src/search.ts:85-107
+- WEB_SEARCH_MAX_RESULTS ↔ packages/web/tool-web/src/search.ts:20（上游默认 10）
 
 [教学决策] 真实版 inject=['tools','web','systemPrompt'] 并写 prompt section；
 教学版不引入 systemPrompt（同第 12 章 tool-skill 的处理），只把工具注册进
@@ -22,11 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ch04" / "code"))
 from tools import ToolDefinition  # noqa: E402
 from web_runtime import WebError  # noqa: E402
 
-WEB_SEARCH_MAX_RESULTS = 8  # search.ts:20
+WEB_SEARCH_MAX_RESULTS = 8  # 真实常量在 `packages/web/tool-web/src/search.ts:20`（上游默认 10）
 
 
 class WebSearchTool:
-    """web_search 工具：execute 只调 ctx.web.search（search.ts:259-264）。"""
+    """web_search 工具：execute 只调 ctx.web.search（`packages/web/tool-web/src/search.ts:403-414`）。"""
 
     inject = ["tools", "web"]
 
@@ -57,7 +58,7 @@ class WebSearchTool:
 
 
 class WebFetchTool:
-    """web_fetch 工具：execute 只调 ctx.web.fetch（fetch.ts:479-484）。"""
+    """web_fetch 工具：execute 只调 ctx.web.fetch（`packages/web/tool-web/src/fetch.ts:501-516`）。"""
 
     inject = ["tools", "web"]
 
@@ -80,11 +81,11 @@ class WebFetchTool:
             result = self.ctx.web.fetch({"url": url})
         except WebError as err:
             return f"web_fetch failed: {err.code}: {err}"
-        return f"[{result['status']}] {result['url']}\n{render_body(result['body'])}"
+        return f"[{result['statusCode']}] {result['url']}\n{render_body(result['body'])}"
 
 
 def format_search_output(result):
-    """把搜索结果渲染成给模型的纯文本（search.ts:54-75）。"""
+    """把搜索结果渲染成给模型的纯文本（`packages/web/tool-web/src/search.ts:85-107`）。"""
     lines = [f"search: {result['query']}"]
     for i, source in enumerate(result["sources"], 1):
         lines.append(f"{i}. {source['title']}")
@@ -97,7 +98,7 @@ def format_search_output(result):
 
 
 def render_body(body):
-    """body 是 html|text 并集（types.ts:93）。
+    """body 是 html|text 并集（`packages/web/web/src/types.ts:112-114`）。
 
     真实版用 turndown 把 HTML 转 markdown（fetch.ts renderBody）；
     [教学简化] 用朴素去标签。

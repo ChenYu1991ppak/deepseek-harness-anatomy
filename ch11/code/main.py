@@ -26,6 +26,8 @@ from tools import ToolExecution, ToolRuntime  # noqa: E402  (ch04)
 from subagent_runtime import (  # noqa: E402  (本章定义层)
     SubagentDepthError, SubagentError, SubagentManager)
 from providers import AcpStubProvider, ForkProvider, SpawnProvider  # noqa: E402  (本章实现层)
+from task_board import TeamError as TeamBoardError  # noqa: E402  (本章 Team 节)
+from task_board import TeamJournal, TeamTaskBoard  # noqa: E402  (本章 Team 节)
 from tool_subagent import SubagentControlTool, SubagentTool  # noqa: E402  (本章消费层)
 
 
@@ -51,7 +53,7 @@ def main():
     SubagentControlTool(ctx).apply()
     print(f"已注册 provider: {subagents.list_providers()}")
 
-    # 生命周期监听：subagent/start 与 subagent/end 由 seam 经 ctx.emit 广播（lifecycle.ts:100）
+    # 生命周期监听：subagent/start 与 subagent/end 由 seam 经 ctx.emit 广播（packages/subagent/subagent/src/lifecycle.ts:40）
     ctx.on("subagent/start", lambda info: print(
         f"  [事件] subagent/start {info['id']} provider={info['provider']} "
         f"parent={info['parent_session']} child={info['child_session']} depth={info['depth']}"))
@@ -128,6 +130,51 @@ def main():
     tool_result = ctx.tools.execute(exec_)
     print(f"工具结果: {tool_result.content}")
     print(f"主会话事件数仍为: {len(main_agent.session.log)}（委派不污染主会话）")
+
+    # ---------- 段 8：Team——两个 teammate 抢同一任务 ----------
+    banner("段 8：Team——两个 teammate 抢同一任务")
+    # Team 不建 Agent：teammate 就是前面 start 出来的普通子 agent，任务板挂在树根会话上
+    lead = main_agent
+    teammate_a = subagents.start("spawn", {"parent": lead, "prompt": "负责构建修复"})
+    teammate_b = subagents.start("spawn", {"parent": lead, "prompt": "负责构建修复（预备）"})
+    journal = TeamJournal()
+    board = TeamTaskBoard(journal, subagents)
+    board.set_enabled(lead, True)
+    task = board.create(lead, lead, "修构建",
+                        write_scopes=["pkg/a"], )
+    print(f"任务板开局: {task['id']} revision={task['revision']} ready={task['ready']}")
+
+    # 两个 teammate 都读到 revision=1；谁先把 CAS 写入提交，谁就认领成功
+    views = [board.get(lead, task["id"]) for _ in (teammate_a, teammate_b)]
+    print(f"两人同时读到 revision: {[v['revision'] for v in views]}")
+    won = board.update(teammate_a.child_agent, lead, task["id"], 1, "claim")
+    print(f"{teammate_a.child_session} 认领: revision={won['revision']} status={won['status']}")
+    try:
+        board.update(teammate_b.child_agent, lead, task["id"], 1, "claim")
+    except TeamBoardError as e:
+        # 输家不是「抢输」，而是拿旧快照写被拒——它必须重读再决定
+        print(f"{teammate_b.child_session} 用同一 revision 认领: 被拒 {e.code}")
+
+    # 依赖边：task-2 必须等 task-1 完成；反向依赖会成环，当场拒
+    follow_up = board.create(lead, lead, "补测试", blocked_by=[task["id"]])
+    print(f"依赖任务: {follow_up['id']} blockedBy={follow_up['blockedBy']} ready={follow_up['ready']}")
+    try:
+        board.update(teammate_a.child_agent, lead, task["id"], won["revision"], "set_dependencies",
+                     blocked_by=[follow_up["id"]])
+    except TeamBoardError as e:
+        print(f"反向依赖: 被拒 {e.code}")
+    done = board.update(teammate_a.child_agent, lead, task["id"], won["revision"], "complete")
+    print(f"完成后: {done['id']} status={done['status']}；{follow_up['id']} ready="
+          f"{board.get(lead, follow_up['id'])['ready']}")
+    print(f"根会话日志里 team/task 事件 {sum(1 for ev in lead.session.log if ev.type == 'team/task')} 条，"
+          f"投影出 {len(board.list_tasks(lead))} 个任务")
+
+    # flush 无人确认：任务已可见，但「已持久化」这个承诺不能给
+    journal.durable = False
+    try:
+        board.create(lead, lead, "升级依赖")
+    except TeamBoardError as e:
+        print(f"持久化未确认: {e.code}")
 
 
 if __name__ == "__main__":

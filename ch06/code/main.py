@@ -10,6 +10,16 @@
 5. ctx.fs：写 + 读 + 版本守卫（拒绝盲覆盖与过期版本）
 6. ctx.sandbox：confine 把 argv 包成「runner + profile + -- + argv」+ fail-closed
 7. bash-sandbox：整 provider 迁移（换执行器不动工具层）
+8. 改动意图与快照：intent 瀑布 → 改前捕获 → turn-stopping 出 diff
+9. 远端执行世界：同一消费代码换远端 provider，输出与本地逐字相同
+
+教学代码路径（相对本仓库根）：
+- ch06/code/subprocess_service.py  受管进程树
+- ch06/code/fs_service.py          文件系统 + 版本守卫 + 意图瀑布
+- ch06/code/sandbox_service.py     隔离
+- ch06/code/bash_sandbox.py        sandbox 消费方（第 5 章执行器子类）
+- ch06/code/workspace_changes.py   改动意图与双快照
+- ch06/code/remote_world.py        远端 provider 家族（进程内 helper）
 """
 import os
 import sys
@@ -40,6 +50,14 @@ from sandbox_service import (  # noqa: E402
     SandboxUnavailableError,
 )
 from bash_sandbox import SandboxBashExecutor  # noqa: E402
+from workspace_changes import WorkspaceChanges  # noqa: E402
+from remote_world import (  # noqa: E402
+    RemoteFs,
+    RemoteHelper,
+    RemoteSandbox,
+    RemoteSubprocess,
+    SshConnection,
+)
 
 _MOCK_RUNNER = os.path.join(_HERE, "mock_runner.py")
 
@@ -160,6 +178,82 @@ def main():
 
     ctx.dispose()
     ctx7.dispose()
+
+    demo_intents_and_snapshots()
+    demo_remote_world()
+
+
+def demo_intents_and_snapshots():
+    """段 8：fs 的第三个机制面——改动意图 + 双快照 + 事件只报地址。"""
+    print("\n== 8. 改动意图与快照：intent 瀑布 → 改前捕获 → turn-stopping 出 diff ==")
+    root = tempfile.mkdtemp(prefix="ch06-ws-")
+    ctx = Context()
+    fs = FileSystem(ctx, root=root)
+    changes = WorkspaceChanges(ctx, fs, root)
+
+    # 预备：先放进两个文件，作为这一轮的「基线树」；新文件可直接写。
+    fs.write("notes.md", "alpha\nbeta\n")
+    fs.write("dead.txt", "to be removed\n")
+
+    ctx.serial("turn/start", 1)          # 拍基线树
+    observed = fs.read("notes.md")
+    fs.write("notes.md", "alpha\nBETA\n", base_version=observed["version"], actor="tool-write")
+    fs.write("fresh.txt", "brand new\n", actor="tool-write")
+    gone = fs.read("dead.txt")
+    fs.delete("dead.txt", base_version=gone["version"], actor="tool-write")
+    seq = ctx.serial("agent/turn-stopping", 1)
+
+    print("  事件只带地址:", changes.events[-1])
+    for entry in changes.summary("s1", seq)["files"]:
+        print(f"  {entry['status']:<8} {entry['path']:<10} +{entry['hunks'][0]}/-{entry['hunks'][1]}")
+    print("  摘要按 (sessionId, seq) 回取；Host 重启后同一 seq 取不到——这是决定行为")
+    ctx.dispose()
+
+
+def demo_remote_world():
+    """段 9：同一段消费代码，换远端 provider，输出与本地逐字相同。"""
+    print("\n== 9. 远端执行世界：同一消费代码换远端 provider ==")
+    local_root = tempfile.mkdtemp(prefix="ch06-local-")
+    remote_root = tempfile.mkdtemp(prefix="ch06-remote-")
+
+    def consume(ctx):
+        """只面向 ctx.fs / ctx.subprocess / ctx.sandbox 三个 seam，不认 provider 是谁。"""
+        ctx.fs.write("hello.txt", "hello world")
+        read_back = ctx.fs.read("hello.txt")
+        handle = ctx.subprocess.spawn(["echo", "from-executor"])
+        outcome = handle.done
+        policy = SandboxPolicy(mode=SandboxMode.WORKSPACE_WRITE, workspace_root="/ws")
+        confined = ctx.sandbox.confine(["bash", "-c", "echo hi"], policy)
+        return read_back["content"], outcome["stdout"].strip(), confined.argv
+
+    # 本地：三个本地 provider
+    ctx_local = Context()
+    FileSystem(ctx_local, root=local_root)
+    SubprocessService(ctx_local)
+    SandboxProvider(ctx_local, runner_argv=[sys.executable, _MOCK_RUNNER])
+    local_out = consume(ctx_local)
+
+    # 远端：连接 helper，三个 provider 全部换成远程版，消费函数一行不改
+    helper = RemoteHelper(remote_root, "a" * 64)
+    ctx_remote = Context()
+    ssh = SshConnection(ctx_remote, helper, helper_hash="a" * 64)
+    RemoteFs(ctx_remote, ssh)
+    RemoteSubprocess(ctx_remote, ssh)
+    RemoteSandbox(ctx_remote, ssh)
+    remote_out = consume(ctx_remote)
+
+    print("  本地 fs/shell argv:", local_out[0], "|", local_out[1], "|", " ".join(local_out[2][-3:]))
+    print("  远端 fs/shell argv:", remote_out[0], "|", remote_out[1], "|", " ".join(remote_out[2][-3:]))
+    print("  内容与 stdout 逐字相同:", local_out[:2] == remote_out[:2])
+    print("  ptcLaunch:", ssh.ptcLaunch, "（远端可执行文件交给 PTC 运行时，见第 17 章）")
+
+    helper.close()
+    try:
+        ctx_remote.subprocess.spawn(["echo", "after-close"]).done
+    except ConnectionError as error:
+        print("  连接断开后新请求被拒，不重放:", str(error)[:48])
+    ctx_local.dispose()
+    ctx_remote.dispose()
 
 
 if __name__ == "__main__":

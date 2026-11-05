@@ -2,9 +2,11 @@
 
 > Language: [中文](README_zh.md) | [English](README.md)
 
-**17 chapters. One mechanism at a time. Every chapter runnable.** Deconstruct the DeepSeek Harness engineering skeleton — from the minimal agent loop "one message in, one reply out" all the way to multi-agent delegation, context compaction, human collaboration, and cross-process RPC.
+**18 chapters. One mechanism at a time. Every chapter runnable.** Deconstruct the DeepSeek Harness engineering skeleton — from the minimal agent loop "one message in, one reply out" all the way to multi-agent delegation, context compaction, human collaboration, and cross-process RPC, closing with a cross-cutting telemetry channel chapter.
 
-> A progressive set of source-study documents: across 17 chapters, dsh is built up from the minimal closed loop of "how one message becomes one reply", chapter by chapter, into the complete end-to-end form of "multi-agent delegation + context compaction + human collaboration + cross-process RPC".
+> A progressive set of source-study documents: across 18 chapters, dsh is built up from the minimal closed loop of "how one message becomes one reply", chapter by chapter, into the complete end-to-end form of "multi-agent delegation + context compaction + human collaboration + cross-process RPC", then closed on the observation plane with "the telemetry channel".
+
+> **Version anchor**: all citations and line numbers in this book are based on upstream [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) HEAD `8bd0733` (dsh-v0.2.2-alpha.3, 2026-11-03).
 
 ## Quick Start (3 minutes)
 
@@ -25,7 +27,7 @@ Then open [Chapter 2](ch02/ch02-agent-loop_en.md) and thicken the loop chapter b
 ## Who Should Read This
 
 - **You're building your own agent framework** and want to reference DeepSeek's design decisions — the seam triple-role, event-stream persistence, and Cordis plugin container are explained mechanism by mechanism
-- **You read the dsh source but couldn't get a grip** — this tutorial provides a 17-chapter progressive map with `file:line` source references
+- **You read the dsh source but couldn't get a grip** — this tutorial provides an 18-chapter progressive map with `file:line` source references
 - **You're a Python developer** who doesn't want to read TypeScript source — every chapter has runnable Python teaching code (standard library only)
 - **You teach or write about agent architecture** — each chapter is a self-contained module with runnable demos, ready to be cited or adapted
 
@@ -35,7 +37,7 @@ Then open [Chapter 2](ch02/ch02-agent-loop_en.md) and thicken the loop chapter b
 
 Reading source code of this scale head-on is hard to get a grip on, so this tutorial breaks it down into a set of **progressive chapters**:
 
-- **17 strictly progressive chapters**: each chapter adds exactly one mechanism on top of the previous one; each chapter ends with a preview of the next, and cross-chapter dependencies are explicitly marked "see Chapter X";
+- **18 strictly progressive chapters**: each chapter adds exactly one mechanism on top of the previous one; each chapter ends with a preview of the next, and cross-chapter dependencies are explicitly marked "see Chapter X";
 - **Each chapter comes with runnable Python teaching code**: `chNN/code/` is self-contained and uses only the standard library; run `python3 chNN/code/main.py` directly — reproduce the output first, then read the mechanism breakdown;
 - **Mechanism-level narrative rather than API-usage level**: it explains "why it is designed this way"; every teaching simplification is marked `[teaching simplification]`; each chapter ends with a `file:line` mapping table to the real source.
 
@@ -64,7 +66,7 @@ The most macroscopic layered view:
 flowchart TB
   ENTRY["Entry layer · CLI / Web UI / SDK"]
   COMPOSE["Composition layer · bundle / preset / boot (assemble the plugin tree per configuration)"]
-  CORE["Core skeleton · session event log / agent-loop / tools pipeline / system-prompt / scope"]
+  CORE["Core skeleton · session event log / agent-loop / tools registry & executor / system-prompt / scope"]
   SEAMS["Capability seams · llm / subprocess / shell / fs / sandbox / subagent / skill / compaction … (swap the provider, swap the behavior)"]
   KERNEL["Cordis kernel · ctx / inject / effect / emit (everything is a plugin, no privileged kernel)"]
   ENTRY --> COMPOSE --> CORE --> SEAMS --> KERNEL
@@ -79,36 +81,37 @@ Four core design philosophies run through the entire tutorial: **everything is a
 | [0](ch00/outline_en.md) | Progressive outline of the whole book | Terminology naming table |
 | [1](ch01/ch01-cordis-kernel_en.md) | The Cordis container kernel | Everything is a plugin |
 | [2](ch02/ch02-agent-loop_en.md) | The minimal agent-loop closed loop | One message in, one reply out |
-| [3](ch03/ch03-session-persistence_en.md) | Session persistence | Event stream, persistence projection |
-| [4](ch04/ch04-tools-pipeline_en.md) | The tools execution pipeline | tools registration, guard execution |
+| [3](ch03/ch03-session-persistence_en.md) | Session event stream & handle persistence | Event stream, handle contract, format migration v0→v4 |
+| [4](ch04/ch04-tools-pipeline_en.md) | The tools registry & executor pipeline | tools registration, executor seam, guard execution |
 | [5](ch05/ch05-capability-seam-triple-role_en.md) | The capability seam | Definition/implementation/consumption triple-role |
-| [6](ch06/ch06-execution-world_en.md) | The execution world | subprocess / shell / fs / sandbox |
+| [6](ch06/ch06-execution-world_en.md) | The execution world | subprocess / shell / fs / sandbox / SSH remote |
 | [7](ch07/ch07-llm-adaptation-streaming_en.md) | LLM adaptation | Adapter seam, streaming output |
 | [8](ch08/ch08-system-prompt-context_en.md) | system-prompt and context | Prompt assembly, context injection |
 | [9](ch09/ch09-scope_en.md) | scope scoped registration | Minting/lineage/shadowing/dispatch |
 | [10](ch10/ch10-compaction_en.md) | Context compaction | compaction, token pressure |
 | [11](ch11/ch11-subagent_en.md) | subagent delegation | Multiple transport providers |
 | [12](ch12/ch12-skill_en.md) | skill loading | Rank ladder, layered shadowing |
-| [13](ch13/ch13-web-lsp_en.md) | web and lsp capabilities | Web retrieval, lsp code semantics |
+| [13](ch13/ch13-web-lsp_en.md) | web / lsp and exclusive capabilities | Web retrieval, lsp code semantics, single-slot exclusive registry |
 | [14](ch14/ch14-interaction-permission-goal-plan_en.md) | Interaction and governance | interaction / permission / goal / plan |
-| [15](ch15/ch15-preset-bundle-profile_en.md) | Configuration composition | preset / bundle / profile |
+| [15](ch15/ch15-preset-bundle-profile_en.md) | Configuration composition | preset / bundle / profile, revision binding |
 | [16](ch16/ch16-typert-api-sdk_en.md) | Cross-process RPC | typert / api / sdk |
-| [17](ch17/ch17-workflow-ralph-python-e2e_en.md) | Workflow and end-to-end | workflow / Ralph loop, end-to-end chain |
+| [17](ch17/ch17-workflow-ralph-python-e2e_en.md) | Workflow and end-to-end | workflow / PTC runtime, python end-to-end chain |
+| [18](ch18/ch18-telemetry-channel_en.md) | The telemetry channel | Empty-definition seam, two queues, channel ownership |
 
-> Chapters 1–2 were split from the original s01 (which carried both the "container kernel" and the "agent-loop closed loop" mechanism clusters); Chapters 3–17 correspond to old Chapters 2–16, with chapter numbers shifted by one overall; the old drafts have been cleaned up and rewritten chapter by chapter following [ch00/outline_en.md](ch00/outline_en.md).
+> Chapters 1–2 were split from the original s01 (which carried both the "container kernel" and the "agent-loop closed loop" mechanism clusters); Chapters 3–17 correspond to old Chapters 2–16, with chapter numbers shifted by one overall; the old drafts have been cleaned up and rewritten chapter by chapter following [ch00/outline_en.md](ch00/outline_en.md); Chapter 18 was added in the 2026-11 update against upstream v0.2.2-alpha.3.
 
 ## Recommended Reading Order
 
-1. **Read the map first**: [ch00/outline_en.md](ch00/outline_en.md) shows the progressive arc of the 17 chapters and the terminology naming table — build the global mental model.
-2. **Read chapter by chapter in order**: `ch01` → `ch17`, strictly progressive — each chapter opens by picking up the mechanism added in the previous chapter and closes with a preview of the next; cross-chapter dependencies are marked "see Chapter X". Skipping chapters is not recommended.
-3. **Read and run**: each chapter's teaching code lives in `chNN/code/` (`ch02`–`ch17` enter via `main.py`; `ch01` via `hello.py`), and `python3 chNN/code/main.py` runs directly; first reproduce the chapter-end "full run output", then read the mechanism breakdown.
+1. **Read the map first**: [ch00/outline_en.md](ch00/outline_en.md) shows the progressive arc of the 18 chapters and the terminology naming table — build the global mental model.
+2. **Read chapter by chapter in order**: `ch01` → `ch18`, strictly progressive — each chapter opens by picking up the mechanism added in the previous chapter and closes with a preview of the next; cross-chapter dependencies are marked "see Chapter X". Skipping chapters is not recommended (ch18 is the cross-cutting close: observing the system ch17 got running).
+3. **Read and run**: each chapter's teaching code lives in `chNN/code/` (`ch02`–`ch18` enter via `main.py`; `ch01` via `hello.py`), and `python3 chNN/code/main.py` runs directly; first reproduce the chapter-end "full run output", then read the mechanism breakdown.
 
 ## Companion Files
 
 | File | Purpose |
 |---|---|
-| `ch00/` | The outline directory: `outline_en.md` is the progressive outline of the 17 chapters (topic / new mechanisms / source modules / prerequisite chapters) + the terminology naming table; `outline_zh.md` is the corresponding Chinese version |
-| `ch01/` … `ch17/` | One directory per chapter: `chNN-*_en.md` is the chapter's final body text (epigraph / questions this chapter answers / body / full run output / source mapping / summary & preview / appendix quick-reference table), `chNN-*_zh.md` is the corresponding Chinese version, and `code/` is the chapter's runnable Python teaching code (accumulated incrementally per chapter) |
+| `ch00/` | The outline directory: `outline_en.md` is the progressive outline of the 18 chapters (topic / new mechanisms / source modules / prerequisite chapters) + the terminology naming table; `outline_zh.md` is the corresponding Chinese version |
+| `ch01/` … `ch18/` | One directory per chapter: `chNN-*_en.md` is the chapter's final body text (epigraph / questions this chapter answers / body / full run output / source mapping / summary & preview / appendix quick-reference table), `chNN-*_zh.md` is the corresponding Chinese version, and `code/` is the chapter's runnable Python teaching code (accumulated incrementally per chapter) |
 
 ## Architecture Comparison
 
@@ -124,7 +127,7 @@ Four core design philosophies run through the entire tutorial: **everything is a
 | Session persistence | Append-only event log + projections | Manual | Limited | Limited |
 | Token metering | Real provider-returned usage | Estimates | Estimates | Estimates |
 | Plugin isolation | Scoped layers (per-agent) | No | No | No |
-| Cross-process RPC | Built-in (Ralph/ACP) | No | No | No |
+| Cross-process RPC | Built-in (SDK / ACP) | No | No | No |
 | Learning curve | Steep (full-featured) | High (many abstractions) | Medium | Medium |
 | Best for | Production agent systems | Rapid prototyping | Role-based tasks | Research experiments |
 

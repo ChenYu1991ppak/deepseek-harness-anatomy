@@ -1,18 +1,22 @@
 """第 14 章教学重构：approval 接缝（「能否做」通道）。
 
-仅标准库，Python 3.10+。运行：python3 main.py
+仅标准库，Python 3.10+。运行：python3 -m main
 
-源码对应（packages/interaction/user-approval/src/）：
-- ApprovalService.request() ↔ index.ts:257（审批入口；真实版 L259 有回合封装检查，教学版省略）
-- ApprovalService.decide()  ↔ index.ts:304（私有裁决：L312 never 短路，L317-321 跑 approval/request 瀑布）
-- effectivePolicy()         ↔ index.ts:285
-- setPolicy()               ↔ index.ts:226（ask/never 两态，折入 approval/policy）
-- ApprovalOutcome           ↔ types.ts:29（allowed-once | rejected | cancelled | unavailable）
+源码对应（HEAD 8bd073392，packages/interaction/user-approval/src/）：
+- ApprovalService.request()  ↔ index.ts:242（入口：L244 回合封装检查 → 审计 asked → decide → 审计 decided）
+- ApprovalService.decide()   ↔ index.ts:293（私有裁决：L295 已取消短路 → L301 never 短路 → L306-310 approval/request 瀑布）
+- effectivePolicy()          ↔ index.ts:270（session 覆盖 ?? 配置默认 ?? 'ask'）
+- setPolicy()                ↔ index.ts:211（切换策略并向 agent 注入一条变更提示）
+- ApprovalOutcome            ↔ types.ts:32（allowed-once | rejected | cancelled | unavailable）
 
-每次裁决记录审计事件对 approval/asked + approval/decided（回合封装，notes §1.1）。
-fail-closed：任何异常或非 allowed-once 的结果都折叠为 rejected。
+契约要点（与旧版不同，按 HEAD 重写）：
+- 审计对 approval/asked + approval/decided 在 request() 里成对落下，never 短路也照样落。
+- decide() 不再把结果折叠成 rejected：非法返回值/异常归一为 unavailable，
+  中止信号返回 cancelled，其余原样返回。
+- 「非放行即拒绝」发生在工具层：pipeline.ts:432 的 serviceAsk 把四种 outcome
+  一对一映射成 allow/deny，并给每种拒绝附不同 reason。
 
-[教学决策] 真实源码的 approval/request 瀑布经容器的 ctx.waterfall 承载（notes §4.2）；
+[教学决策] 真实源码的 approval/request 瀑布经容器的 ctx.waterfall 承载（index.ts:306-310）；
 教学版复用第 4 章 waterfall_wrap（中间件式）与内部监听器列表承载，语义不变。
 """
 from __future__ import annotations
@@ -30,29 +34,34 @@ for _p in (_CH01, _CH04):
 from cordis import Service  # noqa: E402
 from tools import waterfall_wrap  # noqa: E402
 
-# 审批结果四值（types.ts:29）
-ALLOWED_ONCE = "allowed-once"   # 放行这一次
+# 审批结果四值（types.ts:32）
+ALLOWED_ONCE = "allowed-once"   # 放行这一次：唯一授权值
 REJECTED = "rejected"           # 拒绝
-CANCELLED = "cancelled"         # 提问被取消（超时/打断）
-UNAVAILABLE = "unavailable"     # 无人应答（fail-closed 兜底值）
+CANCELLED = "cancelled"         # 提问被取消（信号中止）
+UNAVAILABLE = "unavailable"     # 无人应答 / 应答者异常（fail-closed 兜底值）
+
+OUTCOMES = frozenset({ALLOWED_ONCE, REJECTED, CANCELLED, UNAVAILABLE})
 
 
 @dataclass
 class ApprovalRequest:
-    """一次审批请求（ApprovalService.request 的入参，index.ts:257）。"""
+    """一次审批请求（ApprovalRequestEvent，types.ts:63）。
+
+    真实版还带 agent / callId / reason / displayReason / signal；教学版只留工具身份。
+    """
 
     tool_name: str
     arguments: dict = field(default_factory=dict)
-    request_id: int = 0  # 由 ApprovalService 裁决时填入序号
+    request_id: int = 0  # 由 ApprovalService 发请求时填入序号
 
 
 class ApprovalService(Service):
     """ctx.approval 服务：ch04 ask 分支接缝的实现方。
 
-    真实形态（notes §3.1/§4.2）：request()（index.ts:257）是入口，私有 decide()
-    （index.ts:304）承担裁决——never 短路、approval/request 瀑布、fail-closed 折叠。
-    构造即注册（第 1 章约定）：ch04 的 serviceAsk 机会消费 ctx.approval，
-    本服务就是那个「被机会消费」的实现（notes §5 第 1 条）。
+    真实形态：request()（index.ts:242）是入口，负责回合封装检查与审计对；
+    私有 decide()（index.ts:293）承担裁决——取消短路、never 短路、
+    approval/request 瀑布、非法答复归一。构造即注册（第 1 章约定）：
+    ch04 的 serviceAsk 机会消费 ctx.approval，本服务就是被消费的实现。
     """
 
     def __init__(self, ctx):
@@ -64,14 +73,17 @@ class ApprovalService(Service):
     # ---------- 策略面 ----------
 
     def set_policy(self, policy):
-        """设置 ask/never 两态策略（index.ts:226），折入 approval/policy。"""
+        """切换 ask/never 两态策略（index.ts:211），折入 approval/policy。
+
+        真实版还会给 agent 注入一条「策略已从 X 变为 Y」的用户消息（L215-221）。
+        """
         if policy not in ("ask", "never"):
             raise ValueError(f"policy 只能是 ask/never，收到：{policy}")
         self._policy = policy
         self.ctx.emit("approval/policy", policy)
 
     def effective_policy(self):
-        """生效策略（index.ts:285）：从 approval/policy 折叠读出。"""
+        """生效策略（index.ts:270）：session 覆盖 ?? 配置默认 ?? 'ask'。"""
         return self._policy
 
     # ---------- 瀑布注册 ----------
@@ -79,7 +91,7 @@ class ApprovalService(Service):
     def on_request(self, listener):
         """注册 approval/request 瀑布监听器，签名 (req, next) -> outcome。
 
-        监听器负责把问题渲染给人并收集回答；不调 next() 即短路。
+        监听器负责把问题渲染给人并收集回答；不调 next() 即认领本次请求。
         真实项目里终端 UI 注册在这里；教学版是脚本化的「人」（main.py）。
         """
         self._request_listeners.append(listener)
@@ -87,37 +99,40 @@ class ApprovalService(Service):
     # ---------- 请求/裁决 ----------
 
     def request(self, req):
-        """审批请求（index.ts:257）：入口，委托私有 _decide 裁决。
+        """审批请求（index.ts:242）：回合检查 → 落 asked → decide → 落 decided。
 
-        [教学简化] 真实版在 L259 做回合封装检查（一个回合只允许发一次请求）；
-        教学版省略该检查，故可重复调用 request。
+        [教学简化] 真实版 L244 检查当前有打开中的回合（批量事件必须落在
+        回合的 commit/replay 边界内），不满足就抛错；教学版没有回合模型，省略。
+        审计对在入口处成对落下，因此 never 短路同样留痕（与旧版叙事不同）。
         """
-        return self._decide(req)
-
-    def _decide(self, req):
-        """私有裁决（index.ts:304）：never 短路 → 审计 asked → 瀑布 → fail-closed 收敛 → 审计 decided。"""
-        if self.effective_policy() == "never":
-            return REJECTED  # never 策略短路（L312）：不问人，直接拒绝
         self._seq += 1
         req.request_id = self._seq
-        self.ctx.emit("approval/asked", req)  # 审计事件（与 decided 成对，回合封装）
+        self.ctx.emit("approval/asked", req)  # 审计事件（L252）
+        outcome = self._decide(req)
+        self.ctx.emit("approval/decided", {"request_id": req.request_id, "outcome": outcome})  # L259
+        return outcome
+
+    def _decide(self, req):
+        """私有裁决（index.ts:293）：取消短路 → never 短路 → 瀑布 → 归一。"""
+        if getattr(req, "cancelled", False):
+            return CANCELLED  # 已中止（L295）：不问人，直接取消
+        if self.effective_policy() == "never":
+            return REJECTED  # never 短路（L301）：任何监听器都不能把它翻成放行
         try:
             outcome = waterfall_wrap(
                 self._request_listeners, (req,), fallback=lambda: UNAVAILABLE
-            )  # approval/request 环绕瀑布（L317-321）：裁决权交给下游应答者
+            )  # approval/request 环绕瀑布（L306-310）：兜底 unavailable
         except Exception:
-            outcome = UNAVAILABLE  # fail-closed：异常也不能产生批准
-        # fail-closed 折叠：除 allowed-once 外一律 rejected
-        result = outcome if outcome == ALLOWED_ONCE else REJECTED
-        self.ctx.emit("approval/decided", {"request_id": req.request_id, "outcome": result})
-        return result
+            outcome = UNAVAILABLE  # 应答者抛错：问题侧 fail-closed（L317）
+        # 非法返回值归一为 unavailable（L314）；合法四值原样返回，不在这里折叠
+        return outcome if outcome in OUTCOMES else UNAVAILABLE
 
 
 def main():
-    """最小自检：never 短路；ask 走瀑布；无人应答 fail-closed。"""
+    """最小自检：never 短路；ask 走瀑布；无人应答 fail-closed；取消值原样返回。"""
     from cordis import Context
 
-    # never 短路：不进瀑布、不问人
+    # never 短路：不进瀑布、不问人，但审计对照样落
     ctx1 = Context()
     a1 = ApprovalService(ctx1)
     a1.set_policy("never")
@@ -129,12 +144,19 @@ def main():
     a2.on_request(lambda req, next: ALLOWED_ONCE)
     assert a2.request(ApprovalRequest("shell")) == ALLOWED_ONCE
 
-    # ask + 无人应答：fallback unavailable → 折叠为 rejected（fail-closed）
+    # ask + 无人应答：fallback unavailable，原样返回（拒绝折叠在工具层）
     ctx3 = Context()
     a3 = ApprovalService(ctx3)
-    assert a3.request(ApprovalRequest("shell")) == REJECTED
+    assert a3.request(ApprovalRequest("shell")) == UNAVAILABLE
 
-    print("approval.py 自检通过：never 短路 / ask 走瀑布 / fail-closed")
+    # ask + 已取消：decide 短路返回 cancelled
+    ctx4 = Context()
+    a4 = ApprovalService(ctx4)
+    req = ApprovalRequest("shell")
+    req.cancelled = True
+    assert a4.request(req) == CANCELLED
+
+    print("approval.py 自检通过：never 短路 / ask 走瀑布 / 未应答 unavailable / 取消区分")
 
 
 if __name__ == "__main__":

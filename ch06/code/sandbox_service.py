@@ -7,12 +7,16 @@ sandbox seam 的职责只有一件事：把 argv 包成「runner + profile + -- 
 真正的隔离由平台 runner（bwrap/Landlock/Seatbelt）在内核层施加。
 
 源码对应（packages/sandbox/）：
-- SandboxProvider            ↔ abstract SandboxProvider（sandbox/src/index.ts:158）
-- confine(argv, policy)      ↔ confine（index.ts:158/:175）
-- SandboxMode 三模式          ↔ read-only/workspace-write/danger-full-access（index.ts:29）
-- SandboxPolicy 按次携带      ↔ SandboxPolicy（index.ts:69）
-- SandboxUnavailableError    ↔ SANDBOX_UNAVAILABLE fail-closed（index.ts:124/:131）
-- approve_escalation 严格加宽 ↔ approveEscalation + WIDER_MODES（escalation.ts:157/:28）
+- SandboxProvider            ↔ abstract SandboxProvider（packages/sandbox/sandbox/src/index.ts:174）
+- confine(argv, policy)      ↔ abstract confine（packages/sandbox/sandbox/src/index.ts:192；
+                                 LocalSandboxProvider 实现在 packages/sandbox/sandbox-local/src/index.ts:325）
+- SandboxMode 三模式          ↔ read-only/workspace-write/danger-full-access（packages/sandbox/sandbox/src/index.ts:30）
+- SandboxPolicy 按次携带      ↔ SandboxPolicy（packages/sandbox/sandbox/src/index.ts:77）
+- SandboxUnavailableError    ↔ SANDBOX_UNAVAILABLE fail-closed（packages/sandbox/sandbox/src/index.ts:132/139）
+- approve_escalation 严格加宽 ↔ approveEscalation + WIDER_MODES（packages/sandbox/sandbox/src/escalation.ts:172 与 :29）
+- 平台 runner 链              ↔ PLATFORM_CHAINS（packages/sandbox/sandbox-local/src/index.ts:160：linux bwrap→landlock /
+                                 darwin seatbelt / win32 windows-acl）
+- Landlock launcher 包        ↔ native/system（native/system/packages/entry/src/index.ts:22 LAUNCHER_BIN）
 
 [教学简化] 真实版有平台 runner 链（bwrap→landlock probe 仲裁 / seatbelt / windows-acl）、
 denialSignatures 识别、escalation 审批流；教学版用 mock_runner.py 充当 runner，
@@ -40,14 +44,14 @@ __all__ = [
 
 
 class SandboxMode(Enum):
-    """三模式（index.ts:29）：只读 / 工作区写 / 全放行。"""
+    """三模式（packages/sandbox/sandbox/src/index.ts:30）：只读 / 工作区写 / 全放行。"""
 
     READ_ONLY = "read-only"
     WORKSPACE_WRITE = "workspace-write"
     DANGER_FULL_ACCESS = "danger-full-access"
 
 
-# 严格加宽序（escalation.ts:28 WIDER_MODES）：只能往更宽走。
+# 严格加宽序（packages/sandbox/sandbox/src/escalation.ts:29 WIDER_MODES）：只能往更宽走。
 _WIDER_MODES = {
     SandboxMode.READ_ONLY: {SandboxMode.WORKSPACE_WRITE, SandboxMode.DANGER_FULL_ACCESS},
     SandboxMode.WORKSPACE_WRITE: {SandboxMode.DANGER_FULL_ACCESS},
@@ -57,7 +61,7 @@ _WIDER_MODES = {
 
 @dataclass
 class SandboxPolicy:
-    """按次携带的策略（index.ts:69）：provider 视为完全指定，不与默认合并。"""
+    """按次携带的策略（packages/sandbox/sandbox/src/index.ts:77）：provider 视为完全指定，不与默认合并。"""
 
     mode: SandboxMode
     workspace_root: str
@@ -73,7 +77,7 @@ class ConfinedArgv:
 
 
 class SandboxUnavailableError(Exception):
-    """fail-closed（index.ts:124/:131）：沙箱不可用就拒绝执行，绝不裸奔。"""
+    """fail-closed（packages/sandbox/sandbox/src/index.ts:132/:139）：沙箱不可用就拒绝执行，绝不裸奔。"""
 
 
 class SandboxProvider(Service):
@@ -93,7 +97,7 @@ class SandboxProvider(Service):
         return self._runner_argv is not None
 
     def confine(self, argv, policy):
-        """把 argv 包成「runner + profile + -- + argv」（index.ts:175）。
+        """把 argv 包成「runner + profile + -- + argv」（packages/sandbox/sandbox/src/index.ts:192）。
 
         fail-closed：没有可用 runner 直接抛 SandboxUnavailableError，
         而不是退化成裸跑。
@@ -114,7 +118,7 @@ class SandboxProvider(Service):
         return args
 
     def approve_escalation(self, key, current, requested):
-        """升级严格加宽（escalation.ts:157）：只批准往更宽模式的请求。"""
+        """升级严格加宽（packages/sandbox/sandbox/src/escalation.ts:172）：只批准往更宽模式的请求。"""
         if requested not in _WIDER_MODES[current]:
             raise ValueError(
                 f"escalation 拒绝：{current.value} → {requested.value} 不是严格加宽"

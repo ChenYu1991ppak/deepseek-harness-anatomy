@@ -2,9 +2,11 @@
 
 > 语言：[中文](README_zh.md) | [English](README.md)
 
-**17 章渐进式拆解。每章只加一个机制。每章代码可直接运行。** 从「一条消息如何变成一条回复」的最小闭环，逐章加厚到多 agent 委派、上下文压缩、人类协作与跨进程 RPC 的完整端到端形态。
+**18 章渐进式拆解。每章只加一个机制。每章代码可直接运行。** 从「一条消息如何变成一条回复」的最小闭环，逐章加厚到多 agent 委派、上下文压缩、人类协作与跨进程 RPC 的完整端到端形态，最后以遥测通道横切面收束。
 
-> 一套递进式源码学习文档：用 17 个章节把 dsh 从「一条消息如何变成一条回复」的最小闭环，逐章加厚到「多 agent 委派 + 上下文压缩 + 人类协作 + 跨进程 RPC」的完整端到端形态。
+> 一套递进式源码学习文档：用 18 个章节把 dsh 从「一条消息如何变成一条回复」的最小闭环，逐章加厚到「多 agent 委派 + 上下文压缩 + 人类协作 + 跨进程 RPC」的完整端到端形态，再以「遥测通道」收束观测面。
+
+> **版本锚**：全书引注与行号基于上游 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) HEAD `8bd0733`（dsh-v0.2.2-alpha.3，2026-11-03）。
 
 ## 快速开始（3 分钟）
 
@@ -25,7 +27,7 @@ python3 ch02/code/main.py
 ## 谁该读这个教程
 
 - **你在写自己的 agent 框架**，想参考 DeepSeek 的设计决策——seam 三角色、事件流持久化、Cordis 插件容器，逐机制拆解
-- **你看了 dsh 源码但没看懂**——这份教程提供 17 章递进地图，每章末尾附 `file:line` 源码对照表
+- **你看了 dsh 源码但没看懂**——这份教程提供 18 章递进地图，每章末尾附 `file:line` 源码对照表
 - **你是 Python 开发者**，不想啃 TypeScript 源码——每章附带仅用标准库的可运行 Python 教学代码
 - **你在教或写 agent 架构相关内容**——每章都是独立模块，附可运行 demo，可直接引用或改编
 
@@ -35,7 +37,7 @@ python3 ch02/code/main.py
 
 直接啃这样规模的源码很难下手，所以这个教程把它拆成一套**渐进式章节**：
 
-- **17 章严格递进**：每章只在前一章基础上新增一个机制，章末预告下一章，跨章依赖显式标注「详见第 X 章」；
+- **18 章严格递进**：每章只在前一章基础上新增一个机制，章末预告下一章，跨章依赖显式标注「详见第 X 章」；
 - **每章配可运行的 Python 教学代码**：`chNN/code/` 自包含、仅用标准库，`python3 chNN/code/main.py` 直接跑，先复现输出再读机制拆解；
 - **机制层叙事而非 API 使用层**：讲「为什么这样设计」，每个教学简化都标注 `[教学简化]`；章末附与真实源码的 `file:line` 对照表。
 
@@ -64,7 +66,7 @@ python3 ch02/code/main.py
 flowchart TB
   ENTRY["入口层 · CLI / Web UI / SDK"]
   COMPOSE["组合层 · bundle / preset / boot（按配置拼装插件树）"]
-  CORE["核心骨架 · session 事件日志 / agent-loop / tools 管线 / system-prompt / scope"]
+  CORE["核心骨架 · session 事件日志 / agent-loop / tools 注册表与执行器 / system-prompt / scope"]
   SEAMS["能力 seam · llm / subprocess / shell / fs / sandbox / subagent / skill / compaction …（换 provider 即换行为）"]
   KERNEL["Cordis 内核 · ctx / inject / effect / emit（一切皆插件，没有特权内核）"]
   ENTRY --> COMPOSE --> CORE --> SEAMS --> KERNEL
@@ -79,36 +81,37 @@ flowchart TB
 | [0](ch00/outline_zh.md) | 全书递进大纲 | 术语命名表 |
 | [1](ch01/ch01-cordis-kernel_zh.md) | Cordis 容器内核 | 一切皆插件 |
 | [2](ch02/ch02-agent-loop_zh.md) | 最小 agent-loop 闭环 | 一条消息进，一条回复出 |
-| [3](ch03/ch03-session-persistence_zh.md) | session 持久化 | 事件流、持久化投影 |
-| [4](ch04/ch04-tools-pipeline_zh.md) | tools 执行管线 | tools 注册、守卫执行 |
+| [3](ch03/ch03-session-persistence_zh.md) | session 事件流与 handle 持久化 | 事件流、handle 契约、格式迁移 v0→v4 |
+| [4](ch04/ch04-tools-pipeline_zh.md) | tools 注册表与执行器管线 | tools 注册、执行器 seam、守卫执行 |
 | [5](ch05/ch05-capability-seam-triple-role_zh.md) | capability seam | 定义/实现/消费三角色 |
-| [6](ch06/ch06-execution-world_zh.md) | 执行世界 | subprocess / shell / fs / sandbox |
+| [6](ch06/ch06-execution-world_zh.md) | 执行世界 | subprocess / shell / fs / sandbox / SSH 远端 |
 | [7](ch07/ch07-llm-adaptation-streaming_zh.md) | LLM 适配 | 适配器 seam、流式输出 |
 | [8](ch08/ch08-system-prompt-context_zh.md) | system-prompt 与 context | prompt 组装、context 注入 |
 | [9](ch09/ch09-scope_zh.md) | scope 作用域 | 铸造/谱系/遮蔽/分发 |
 | [10](ch10/ch10-compaction_zh.md) | 上下文压缩 | compaction、token 压力 |
 | [11](ch11/ch11-subagent_zh.md) | subagent 委派 | 多 transport provider |
 | [12](ch12/ch12-skill_zh.md) | skill 加载 | rank 阶梯、分层 shadowing |
-| [13](ch13/ch13-web-lsp_zh.md) | web 与 lsp 能力 | web 检索、lsp 代码语义 |
+| [13](ch13/ch13-web-lsp_zh.md) | web / lsp 与独占能力 | web 检索、lsp 代码语义、单槽排他注册表 |
 | [14](ch14/ch14-interaction-permission-goal-plan_zh.md) | 交互与治理 | interaction / permission / goal / plan |
-| [15](ch15/ch15-preset-bundle-profile_zh.md) | 配置组合 | preset / bundle / profile |
+| [15](ch15/ch15-preset-bundle-profile_zh.md) | 配置组合 | preset / bundle / profile、revision 绑定 |
 | [16](ch16/ch16-typert-api-sdk_zh.md) | 跨进程 RPC | typert / api / sdk |
-| [17](ch17/ch17-workflow-ralph-python-e2e_zh.md) | workflow 与端到端 | workflow / Ralph 循环、端到端链路 |
+| [17](ch17/ch17-workflow-ralph-python-e2e_zh.md) | workflow 与端到端 | workflow / PTC 运行时、python 端到端链路 |
+| [18](ch18/ch18-telemetry-channel_zh.md) | 遥测通道 | 空定义 seam、两条队列、通道所有权 |
 
-> 第 1–2 章由原 s01（同时承载「容器内核」与「agent-loop 闭环」两个机制簇）拆分而来；第 3–17 章对应旧版第 2–16 章，章号整体顺延一位，原稿已清理，按 [ch00/outline_zh.md](ch00/outline_zh.md) 逐章重写。
+> 第 1–2 章由原 s01（同时承载「容器内核」与「agent-loop 闭环」两个机制簇）拆分而来；第 3–17 章对应旧版第 2–16 章，章号整体顺延一位，原稿已清理，按 [ch00/outline_zh.md](ch00/outline_zh.md) 逐章重写；第 18 章为 2026-11 按上游 v0.2.2-alpha.3 更新时新增。
 
 ## 推荐阅读顺序
 
-1. **先读地图**：[ch00/outline_zh.md](ch00/outline_zh.md) 看 17 章递进脉络与术语命名表，建立全局心智模型。
-2. **按编号逐章读**：`ch01` → `ch17` 严格递进——每一章开头承接前一章新增的机制，结尾预告下一章，跨章依赖用「详见第 X 章」标注。不建议跳读。
-3. **边读边跑**：每章教学代码位于 `chNN/code/`（`ch02`–`ch17` 以 `main.py` 为入口，`ch01` 为 `hello.py`），`python3 chNN/code/main.py` 可直接运行；先复现章末「完整运行输出」，再读机制拆解。
+1. **先读地图**：[ch00/outline_zh.md](ch00/outline_zh.md) 看 18 章递进脉络与术语命名表，建立全局心智模型。
+2. **按编号逐章读**：`ch01` → `ch18` 严格递进——每一章开头承接前一章新增的机制，结尾预告下一章，跨章依赖用「详见第 X 章」标注。不建议跳读（ch18 是横切面收束章，观测 ch17 跑起来的系统）。
+3. **边读边跑**：每章教学代码位于 `chNN/code/`（`ch02`–`ch18` 以 `main.py` 为入口，`ch01` 为 `hello.py`），`python3 chNN/code/main.py` 可直接运行；先复现章末「完整运行输出」，再读机制拆解。
 
 ## 配套文件说明
 
 | 文件 | 作用 |
 |---|---|
-| `ch00/` | 大纲目录：`outline_zh.md` 为 17 章递进大纲（主题 / 新增机制 / 源码模块 / 依赖前章）+ 术语命名表，`outline_en.md` 为对应英文版 |
-| `ch01/` … `ch17/` | 每章一个目录：`chNN-*_zh.md` 为该章正文终稿（题记 / 本章回答的问题 / 正文 / 完整运行输出 / 源码对照 / 小结与预告 / 附录速查表），`chNN-*_en.md` 为对应英文版，`code/` 为该章可运行 Python 教学代码（按章增量累积） |
+| `ch00/` | 大纲目录：`outline_zh.md` 为 18 章递进大纲（主题 / 新增机制 / 源码模块 / 依赖前章）+ 术语命名表，`outline_en.md` 为对应英文版 |
+| `ch01/` … `ch18/` | 每章一个目录：`chNN-*_zh.md` 为该章正文终稿（题记 / 本章回答的问题 / 正文 / 完整运行输出 / 源码对照 / 小结与预告 / 附录速查表），`chNN-*_en.md` 为对应英文版，`code/` 为该章可运行 Python 教学代码（按章增量累积） |
 
 ## 架构对比
 
@@ -124,7 +127,7 @@ flowchart TB
 | 会话持久化 | Append-only 事件日志 + 投影 | 手动 | 有限 | 有限 |
 | Token 计量 | 真实 provider 回传用量 | 估算 | 估算 | 估算 |
 | 插件隔离 | 作用域层（per-agent） | 无 | 无 | 无 |
-| 跨进程 RPC | 内置（Ralph/ACP） | 无 | 无 | 无 |
+| 跨进程 RPC | 内置（SDK / ACP） | 无 | 无 | 无 |
 | 学习曲线 | 陡峭（全功能） | 高（大量抽象） | 中 | 中 |
 | 最适合 | 生产级 agent 系统 | 快速原型 | 角色式任务 | 研究实验 |
 

@@ -1,7 +1,10 @@
 """第 16 章可运行入口：typert 类型图 → 注册表 → RPC 网关 → JSON-RPC SDK。
 
-运行：python3 ch16/code/main.py
+运行：python3 ch16/code/main.py（或 cd 到本目录后 python3 -I main.py）
 复用第 1 章 cordis.py 的 Context / Service（经 sys.path，见各模块文件头）。
+
+[教学简化] 真实 UI 侧（浏览器预览）调用的是 officeToPdf 的 @Remote 方法，
+教学版不实现该服务——它依赖外部 LibreOffice kit，无法自包含。
 """
 from __future__ import annotations
 
@@ -155,7 +158,7 @@ def main():
 
     harness = DeepSeekHarness(make_server).start()  # start 内部自动 initialize
     outcome = harness.session().prompt("跨进程调用")
-    print(f"session.prompt 收到的 chunk: {outcome['chunks']}")
+    print(f"session/prompt 收到的 chunk: {outcome['chunks']}")
     print(f"finalResponse: {outcome['finalResponse']}")
     harness.shutdown()
     print(f"销毁阶梯: {harness.destroy_trace}（优雅退出，未升级）")

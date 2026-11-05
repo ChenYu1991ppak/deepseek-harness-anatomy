@@ -1,16 +1,16 @@
 """第 16 章教学重构：typert —— 类型图 + 运行时注册表。
 
 仅标准库，Python 3.10+。源码对应：
-- TypeNode / TypeGraph           ↔ TypeNodeModel / TypeGraph（packages/typert/generator/src/model.ts:350/:430）
-- InvocationDescriptor           ↔ InvocationDescriptor（packages/typert/protocol/src/types.ts:172-211）
-- CODEC_STRICT / CODEC_SRC_JSON  ↔ TypertCodec（packages/typert/protocol/src/types.ts:139）
-- typert_key / typert_endpoint   ↔ typertKey / typertEndpoint（packages/typert/registry/src/service.ts:48/:67）
-- TypertRegistry                 ↔ TypertRegistry（packages/typert/registry/src/service.ts:446）
-- generate_contribution          ↔ WorkspaceTypertGenerator.generate（packages/typert/generator/src/workspace.ts:46）
+- TypeNode / TypeGraph           ↔ TypeNodeModel / TypeGraph（packages/typert/generator/src/model.ts:356/:440）
+- InvocationDescriptor           ↔ InvocationDescriptor（packages/typert/protocol/src/types.ts:388-442）
+- CODEC_STRICT / CODEC_SRC_JSON  ↔ TypertCodec（packages/typert/protocol/src/types.ts:341）
+- typert_key / typert_endpoint   ↔ typertKey / typertEndpoint（packages/typert/registry/src/service.ts:52/:71）
+- TypertRegistry                 ↔ TypertRegistry（packages/typert/registry/src/service.ts:508）
+- generate_contribution          ↔ WorkspaceTypertGenerator.generate（packages/typert/generator/src/workspace.ts:77）
 
-[教学简化] 真实 TypeNodeModel 有 18 个 variant；教学版 variant 只取 primitive / object，
+[教学简化] 真实 TypeNodeModel 有 20 个 variant；教学版 variant 只取 primitive / object，
 再用 detail 细分 string/number/boolean/null。真实注册表有 local/remote 两套
-DescriptorStore，另有 RemoteStore / LookupStore / ContextStore；教学版只保留 local，
+DescriptorStore，另有 LookupStore / ContextStore / ResourceStore；教学版只保留 local，
 lookup 一块移到 gateway.py 里讲。
 """
 from __future__ import annotations
@@ -39,16 +39,17 @@ class TypertError(Exception):
 # ---------- 类型图：与编译器解耦的载体无关中间模型 ----------
 
 class TypeNode:
-    """类型图节点 ↔ TypeNodeModel（model.ts:350）。
+    """类型图节点 ↔ TypeNodeModel（packages/typert/generator/src/model.ts:356）。
 
-    [教学简化] 真实模型有 18 个 variant（primitive/object/union/literal 等）；
+    [教学简化] 真实模型有 20 个 variant（primitive/object/union/literal 等）；
     教学版 variant 只取 primitive / object，detail 再细分 string/number 等。
     """
 
     __slots__ = ("id", "variant", "detail")
 
     def __init__(self, id, variant, detail=None):
-        self.id = id            # 图内节点 id（真实代码靠它遍历子节点，model.ts:394）
+        self.id = id            # 图内节点 id（真实代码靠它遍历子节点：
+                                # packages/typert/generator/src/model.ts:404 childTypeNodeIds）
         self.variant = variant  # 节点种类：primitive / object
         self.detail = detail    # 细分：string / number / boolean / null / lookup:<kind>
 
@@ -57,7 +58,7 @@ class TypeNode:
 
 
 class TypeGraph:
-    """类型图整体 ↔ TypeGraph（model.ts:430）：declarations + nodes。
+    """类型图整体 ↔ TypeGraph（packages/typert/generator/src/model.ts:440）：declarations + nodes。
 
     它是生成器的产出物：可序列化、可跨进程——类型契约从此不依赖任何一门源语言。
     """
@@ -71,18 +72,19 @@ class TypeGraph:
 
 # ---------- 编解码策略与两种 key ----------
 
-# 编解码策略 ↔ TypertCodec（types.ts:139）
-CODEC_STRICT = "strict"        # 严格：按 schema 校验（真实用 Zod v4，loader/src/index.ts:264）
+# 编解码策略 ↔ TypertCodec（packages/typert/protocol/src/types.ts:341）
+CODEC_STRICT = "strict"        # 严格：按 schema 校验（真实用 Zod v4，
+                               # packages/typert/loader/src/index.ts:310）
 CODEC_SRC_JSON = "src-json"    # 弱解析：只做 JSON 安全校验，用于无生成器场景
 
 
 def typert_key(package, name):
-    """schema 标识 ↔ typertKey（service.ts:48）：<pkg>#<name>。"""
+    """schema 标识 ↔ typertKey（packages/typert/registry/src/service.ts:52）：<pkg>#<name>。"""
     return f"{package}#{name}"
 
 
 def typert_endpoint(namespace, method):
-    """可调用端点标识 ↔ typertEndpoint（service.ts:67）：<namespace>/<method>。"""
+    """可调用端点标识 ↔ typertEndpoint（packages/typert/registry/src/service.ts:71）：<namespace>/<method>。"""
     return f"{namespace}/{method}"
 
 
@@ -100,10 +102,12 @@ class InvocationParameterDescriptor:
 
 @dataclass(frozen=True)
 class InvocationDescriptor:
-    """一条被导出的 RPC 方法的载体无关描述 ↔ InvocationDescriptor（types.ts:172-211）。
+    """一条被导出的 RPC 方法的载体无关描述 ↔ InvocationDescriptor
+    （packages/typert/protocol/src/types.ts:388-442）。
 
-    [教学简化] 真实字段还有 implementation / invocation / scope / cancellation /
-    sourceLocation；教学版保留 id / service / namespace / method / parameters / result。
+    [教学简化] 真实字段还有 implementation / mode / invocation / scope / uplink /
+    cancellation / description / sourceLocation；教学版保留
+    id / service / namespace / method / parameters / result。
     """
 
     id: str                    # 全局稳定生成标识
@@ -133,8 +137,8 @@ _ANNOTATIONS = {str: "string", int: "number", bool: "boolean", dict: "object", l
 def generate_contribution(cls, package, namespace=None):
     """教学版生成器：反射类的导出方法，产出类型图 + 调用描述符。
 
-    ↔ WorkspaceTypertGenerator：discover（workspace.ts:33）→ generate（:46）→
-    validateExport（:68，校验 ./typert / ./remote 导出）。
+    ↔ WorkspaceTypertGenerator：discover（packages/typert/generator/src/workspace.ts:60）
+    → generate（:77）→ validateExport（:116，校验 ./typert / ./remote 导出）。
     [教学简化] 教学版用 inspect 反射 Python 签名，并把类属性 typert_exports
     当作「./typert 导出声明」：没声明就拒绝生成，对应真实 validateExport 的校验。
     返回 (contribution, graph)：前者提交给注册表，后者供观察类型图形状。
@@ -179,10 +183,12 @@ def generate_contribution(cls, package, namespace=None):
 # ---------- 运行时注册表 ----------
 
 class TypertRegistry(Service):
-    """运行时注册表 ↔ TypertRegistry（service.ts:446），@typert service typert。
+    """运行时注册表 ↔ TypertRegistry（packages/typert/registry/src/service.ts:508），
+    @typert service typert。
 
     持有三张表：packages（包记录）/ schemas（typertKey -> 类型节点）/
-    local（endpoint -> 描述符，即 DescriptorStore 的 local 侧，service.ts:107）。
+    local（endpoint -> 描述符，即 DescriptorStore 的 local 侧，
+    packages/typert/registry/src/service.ts:111）。
     以 name="typert" 注册为 Cordis 服务：构造后 ctx.typert 即指向本实例。
     """
 
@@ -213,7 +219,8 @@ class TypertRegistry(Service):
     # -- 生产端注册 --
 
     def register(self, contribution):
-        """原子注册一个 generated contribution ↔ register（service.ts:499）。
+        """原子注册一个 generated contribution ↔ register
+        （packages/typert/registry/src/service.ts:568）。
 
         先做三道校验（对应 validatePackage / validateSchemas / localStore.validate），
         全部通过后才进 ctx.effect 提交：一次性写入 packages / schemas / local，

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "DeepSeek Harness（dsh）17 章递进路线图",
+    "title": "DeepSeek Harness（dsh）18 章递进路线图",
     "locale": "zh-CN",
     "quality_profile": "showcase",
     "viewBox": [
@@ -42,8 +42,8 @@
     {
       "id": "ch03",
       "type": "database",
-      "label": "Ch3 · session 持久化",
-      "sublabel": "事件流",
+      "label": "Ch3 · session 事件流",
+      "sublabel": "handle 持久化",
       "pos": [
         700,
         40
@@ -56,8 +56,8 @@
     {
       "id": "ch04",
       "type": "backend",
-      "label": "Ch4 · tools 管线",
-      "sublabel": "注册 + 守卫",
+      "label": "Ch4 · tools 注册表",
+      "sublabel": "执行器管线",
       "pos": [
         40,
         150
@@ -182,8 +182,8 @@
     {
       "id": "ch13",
       "type": "backend",
-      "label": "Ch13 · web 与 lsp",
-      "sublabel": "检索 + 代码",
+      "label": "Ch13 · web / lsp",
+      "sublabel": "检索 + 独占能力",
       "pos": [
         700,
         550
@@ -239,9 +239,23 @@
       "id": "ch17",
       "type": "backend",
       "label": "Ch17 · workflow 端到端",
-      "sublabel": "Ralph loop",
+      "sublabel": "PTC 运行时",
       "pos": [
         370,
+        660
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "ch18",
+      "type": "backend",
+      "label": "Ch18 · 遥测通道",
+      "sublabel": "空服务 · 两条队列",
+      "pos": [
+        700,
         660
       ],
       "size": [
@@ -296,6 +310,13 @@
       "wraps": [
         "ch16",
         "ch17"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "横切收束 · ch18",
+      "wraps": [
+        "ch18"
       ]
     }
   ],
@@ -383,6 +404,11 @@
       "id": "p16-17",
       "from": "ch16",
       "to": "ch17"
+    },
+    {
+      "id": "p17-18",
+      "from": "ch17",
+      "to": "ch18"
     },
     {
       "id": "x07-10",

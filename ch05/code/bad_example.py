@@ -4,7 +4,7 @@
 
 [教学定位] 用于 §1 的问题场景：如果消费者直接 import subprocess 跑 bash，
 「在哪台机器跑」「怎么渲染退出码」全焊死在消费者体内，换 provider 必须改消费者。
-对比正解：消费者只面向 ctx.shell 三个方法，换 provider 一行不改（见 main.py 第 4 段）。
+对比正解：消费者只面向 ctx.shell 两个方法，换 provider 一行不改（见 main.py 第 5 段）。
 """
 import subprocess
 

@@ -8,11 +8,17 @@ bash_local.py 消费的 spawn(argv, workdir, env, timeout_ms) → 句柄 完全�
 因此 LocalBashExecutor 一行不改即可换用。
 
 源码对应（packages/subprocess/）：
-- SubprocessService          ↔ LocalSubprocessRuntime（subprocess-local/src/index.ts:37，disposeManagedProcesses :79）
-- spawn / SubprocessHandle   ↔ spawnSubprocess / SubprocessHandle（spawn.ts:326 / types.ts:167）
-- terminate（SIGTERM→SIGKILL）↔ spawn.ts:439；waitForExit ↔ spawn.ts:507
-- OutputCollector（tail+spill）↔ spawn.ts:104
-- scrub_env / _SENSITIVE_ENV_RE / DSH_ENV_PREFIX ↔ scrubbedParentEnv / SENSITIVE_ENV_PATTERN / DSH_ENV_PREFIX（index.ts:60/:44、types.ts:13）
+- SubprocessService          ↔ LocalSubprocessRuntime（packages/subprocess/subprocess-local/src/index.ts:64；
+                                 disposeManagedProcesses :122）
+- spawn / SubprocessHandle   ↔ spawnSubprocess / SubprocessHandle
+                                 （packages/subprocess/subprocess-local/src/spawn.ts:454 /
+                                  packages/subprocess/subprocess/src/types.ts:169）
+- terminate（SIGTERM→SIGKILL）↔ packages/subprocess/subprocess-local/src/spawn.ts:370
+- waitForExit                ↔ packages/subprocess/subprocess-local/src/spawn.ts:424
+- OutputCollector（tail+spill）↔ packages/subprocess/subprocess-local/src/output.ts:129
+- scrub_env / _SENSITIVE_ENV_RE / DSH_ENV_PREFIX
+                             ↔ scrubbedParentEnv / SENSITIVE_ENV_PATTERN / DSH_ENV_PREFIX
+                                 （packages/subprocess/subprocess/src/index.ts:66/:47、src/types.ts:13）
 """
 from __future__ import annotations
 
@@ -35,14 +41,14 @@ __all__ = [
     "SubprocessService",
 ]
 
-# 凭据形变量名（index.ts:44 SENSITIVE_ENV_PATTERN）。
+# 凭据形变量名（packages/subprocess/subprocess/src/index.ts:47 SENSITIVE_ENV_PATTERN）。
 _SENSITIVE_ENV_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)", re.I)
-# agent 自身前缀（types.ts:13）：与凭据形变量一并从父环境剔除，靠显式 env 重新注入。
+# agent 自身前缀（packages/subprocess/subprocess/src/types.ts:13）：与凭据形变量一并从父环境剔除，靠显式 env 重新注入。
 DSH_ENV_PREFIX = "DSH_"
 
 
 def scrub_env(parent_env):
-    """剔除父环境里的凭据形变量与 DSH_* 前缀变量（index.ts:60 scrubbedParentEnv）。
+    """剔除父环境里的凭据形变量与 DSH_* 前缀变量（packages/subprocess/subprocess/src/index.ts:66 scrubbedParentEnv）。
 
     显式 env 在 scrub 之后合并——父环境只贡献 PATH 这类基础变量，
     敏感值一律不自动透传给子进程。
@@ -55,7 +61,7 @@ def scrub_env(parent_env):
 
 
 class OutputCollector:
-    """子进程输出收集器：tail + offset 非消耗读（spawn.ts:104）。
+    """子进程输出收集器：tail + offset 非消耗读（packages/subprocess/subprocess-local/src/output.ts:129）。
 
     [教学简化] 真实版超出 max_bytes 的旧输出 spill 到随机临时文件（0600，'wx' 独占创建）；
     教学版只在内存保留尾部 max_bytes，省略落盘。
@@ -98,7 +104,7 @@ def _pump(stream, collector):
 class SubprocessHandle:
     """spawn 返回的句柄：done / read_output / kill + 唯一终止动词 terminate。
 
-    对应 types.ts:167 SubprocessHandle（terminate :186 / waitForExit :193）。
+    对应 packages/subprocess/subprocess/src/types.ts:169 SubprocessHandle（terminate :187 / waitForExit :195）。
     """
 
     def __init__(self, proc, stdout_collector, stderr_collector, grace_ms, timeout_ms):
@@ -126,7 +132,7 @@ class SubprocessHandle:
         return self._result
 
     def _wait_for_exit(self):
-        """waitForExit（spawn.ts:507）：观察进程退出；超时则 terminate 升级。"""
+        """waitForExit（packages/subprocess/subprocess-local/src/spawn.ts:424）：观察进程退出；超时则 terminate 升级。"""
         timeout_s = self._timeout_ms / 1000 if self._timeout_ms else None
         timed_out = False
         try:
@@ -157,7 +163,7 @@ class SubprocessHandle:
         self.terminate()
 
     def terminate(self):
-        """唯一终止动词（spawn.ts:439）：SIGTERM → grace 窗口 → SIGKILL。
+        """唯一终止动词（packages/subprocess/subprocess-local/src/spawn.ts:370）：SIGTERM → grace 窗口 → SIGKILL。
 
         作用于整个进程组（detached 树根），而非只杀直接子进程：
         领导者退出 ≠ 树退出，升级必须跨整树存活。
@@ -186,7 +192,7 @@ class SubprocessHandle:
 class SubprocessService(Service):
     """ctx.subprocess seam：受管进程树 + 后台登记 + dispose 兜底回收。
 
-    对应 LocalSubprocessRuntime（subprocess-local/src/index.ts:37）。
+    对应 LocalSubprocessRuntime（packages/subprocess/subprocess-local/src/index.ts:64）。
     """
 
     inject = []
@@ -196,12 +202,12 @@ class SubprocessService(Service):
         self._managed = {}  # 后台登记：spawn_id → 句柄
         self._next_id = 0
         self._grace_ms = (config or {}).get("grace_ms", 3000)
-        # dispose 兜底回收（index.ts:79 disposeManagedProcesses）：
+        # dispose 兜底回收（packages/subprocess/subprocess-local/src/index.ts:122 disposeManagedProcesses）：
         # context 卸载时 terminate 所有仍存活的受管进程，杜绝进程泄漏。
         ctx.effect(self._dispose_managed)
 
     def spawn(self, argv, workdir=None, env=None, timeout_ms=None):
-        """spawn 全显式、无默认（index.ts:130）：先 scrub 父环境再合并显式 env。"""
+        """spawn 全显式、无默认（packages/subprocess/subprocess/src/index.ts:153）：先 scrub 父环境再合并显式 env。"""
         full_env = scrub_env(dict(os.environ))
         if env:
             full_env.update(env)
@@ -211,7 +217,7 @@ class SubprocessService(Service):
             env=full_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            start_new_session=True,  # detached 树根：自成进程组（spawn.ts:350-361）
+            start_new_session=True,  # detached 树根：自成进程组（packages/subprocess/subprocess-local/src/spawn.ts:471 detached）
         )
         stdout_c, stderr_c = OutputCollector(), OutputCollector()
         handle = SubprocessHandle(proc, stdout_c, stderr_c, self._grace_ms, timeout_ms)

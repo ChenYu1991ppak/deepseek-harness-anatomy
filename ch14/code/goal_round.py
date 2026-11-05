@@ -1,25 +1,31 @@
 """第 14 章教学重构：goal-round-driver（目标自动续轮）。
 
-仅标准库，Python 3.10+。运行：python3 main.py
+仅标准库，Python 3.10+。运行：python3 -m main
 
-源码对应（packages/goal/goal-round-driver/src/，行号见 notes §2.7）：
-- drive()               ↔ index.ts:138（校验 goal 状态 + validReservation 竞态围栏 → 起新轮）
-- validReservation      ↔ index.ts:334（只有最新 reservation 有效）
-- requestDrive()        ↔ index.ts:208（drive 入口）
-- 事件接线              ↔ index.ts:245-331（监听 goal 事件触发驱动）
-- renderGoalRoundPrompt ↔ prompt.ts:12（续轮提示注入）
+源码对应（HEAD 8bd073392，packages/goal/goal-round-driver/src/）：
+- drive()               ↔ index.ts:146（readyToDrive → 检查点 → 预算 → 起一轮）
+- drivable()            ↔ index.ts:106（phase=active 且 activation=armed）
+- 轮次预算                ↔ index.ts:182（roundsStarted 到顶就 block，code='round-limit'）
+- reservation 自身       ↔ index.ts:200-206（一轮一个 RoundAttempt：goalId/revision/round/messageId）
+- 入队                    ↔ index.ts:208（agent.followup(message)）
+- requestDrive()        ↔ index.ts:224（把触发合并到一个串行驱动器上）
+- validReservation      ↔ index.ts:372（提交前的围栏，在 agent/pre-step 里用）
+- 事件接线                ↔ index.ts:302（ctx.on('goal/changed')）
+- renderGoalRoundPrompt ↔ prompt.ts:12（<goal_round> 续轮提示）
 
-事件触发，不是轮询：driver 不周期检查 goal 状态，而是被 goal/changed 唤醒。
-goal-round-driver 是 ch17 Ralph 循环的局部形态（notes §5 第 3 条）。
+事件触发，不是轮询：driver 不周期检查，而是被 goal/changed 等事件唤醒。
+goal-round-driver 是 ch17 Ralph 循环的局部形态。
 
-[教学简化] 真实版事件接线监听多个 goal 事件（index.ts:245-331），在「一轮完成/被
-block」时才请求续跑；教学版只订阅 goal/changed，goal 一变就请求续跑。
-[教学决策] goal/round-start 为教学版事件名，notes 未给出真实轮次启动事件名。
+[教学简化] 真实版还有一个完整状态机（queued → claimed → admitted / stale / cancelled），
+并在 agent/pre-step 里拿 validReservation 把过期轮次拒掉。教学版保留「reservation 是
+一轮的身份证、旧凭证失效」这一核心，省略状态机与 pre-step 拒绝。
+[教学决策] goal/round-start 为教学版事件名，真实版没有单独的轮次启动事件。
 """
 from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 
 _CH01 = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "ch01", "code"))
 if _CH01 not in sys.path:
@@ -27,49 +33,75 @@ if _CH01 not in sys.path:
 
 from cordis import Service  # noqa: E402
 
-from goal import ACTIVE
+
+@dataclass(frozen=True)
+class RoundAttempt:
+    """一轮的预约（index.ts:200 的 RoundAttempt 简化版）：绑死 goal 的某个 revision 与轮号。"""
+
+    goal_id: str
+    revision: int
+    round: int
 
 
 class GoalRoundDriver(Service):
-    """ctx.goalRoundDriver 服务：被 goal/changed 唤醒，goal 仍 active 时自动起下一轮。"""
+    """ctx.goalRoundDriver 服务：被 goal/changed 唤醒，goal 可驱动时自动起下一轮。"""
 
     def __init__(self, ctx):
         super().__init__(ctx, "goalRoundDriver")
-        self._reservation = 0
-        self._round = 0
-        # 事件触发，不是轮询：订阅 goal/changed（真实版事件接线 index.ts:245-331）
-        ctx.on("goal/changed", self._on_goal_changed)
+        self._attempt = None    # 当前预约；新预约覆盖旧的
+        self._round = 0         # 最近起的轮号（prompt 里用）
+        ctx.on("goal/changed", self._on_goal_changed)  # index.ts:302
 
     def _on_goal_changed(self, payload=None):
         self.request_drive()
 
     def reserve(self):
-        """建立新 reservation 并返回 token；更新的 reservation 覆盖旧的。"""
-        self._reservation += 1
-        return self._reservation
+        """建立新一轮预约（index.ts:200）：绑死当前 goal 的 revision。"""
+        ref = self.ctx.goal.ref()
+        if ref is None:  # goal 已被 clear：没有可预约的对象
+            return None
+        attempt = RoundAttempt(ref.id, ref.revision, self.ctx.goal.rounds_started() + 1)
+        self._attempt = attempt
+        return attempt
 
-    def valid_reservation(self, token):
-        """validReservation（index.ts:334）：只有最新 reservation 有效（竞态围栏）。"""
-        return token == self._reservation
-
-    def drive(self, token):
-        """drive（index.ts:138）：校验 goal 状态 + reservation 有效 → 起新轮。"""
-        if not self.valid_reservation(token):
-            return False
+    def valid_reservation(self, attempt):
+        """validReservation（index.ts:372）：预约必须仍对应当前 active revision。"""
         state = self.ctx.goal.state()
-        if state is None or state.phase != ACTIVE:
-            return False
-        self._round += 1
-        self.ctx.emit("goal/round-start", {"round": self._round})  # [教学决策] 事件名
+        return (
+            attempt is not None
+            and self._attempt is attempt
+            and state is not None
+            and state.phase == "active"
+            and self.ctx.goal.activation() == "armed"
+            and attempt.revision == state.revision
+            and attempt.round == self.ctx.goal.rounds_started() + 1
+        )
+
+    def drive(self, attempt):
+        """drive（index.ts:146）：预约有效 + 仍有轮次预算 → 起新轮。"""
+        if not self.valid_reservation(attempt):
+            return False  # 过期预约：goal 已变（edit/pause/complete）或被新预约顶掉
+        round_no = self.ctx.goal.start_round()
+        if round_no is None:
+            return False  # 预算到顶：start_round 已把 goal block 掉（index.ts:182）
+        self._round = round_no
+        self.ctx.emit("goal/round-start", {"round": round_no})  # [教学决策] 事件名
         return True
 
     def request_drive(self):
-        """requestDrive（index.ts:208）：drive 入口。"""
-        return self.drive(self.reserve())
+        """requestDrive（index.ts:224）：触发合流入口——每次触发都申请新预约再驱动。"""
+        attempt = self.reserve()
+        if attempt is None:
+            return False
+        return self.drive(attempt)
 
     def render_round_prompt(self):
-        """renderGoalRoundPrompt（prompt.ts:12）：续轮提示注入。"""
+        """renderGoalRoundPrompt（prompt.ts:12）：<goal_round> 提示，带 Objective 与轮次。"""
         state = self.ctx.goal.state()
-        if state is None or state.phase != ACTIVE:
+        if state is None or state.phase != "active":
             return None
-        return f"继续推进当前目标（第 {self._round} 轮）：{state.text}"
+        return (
+            f"<goal_round>\nObjective: {state.text!r}\n"
+            f"Round: {self._round}/{self.ctx.goal.MAX_ROUNDS}\n"
+            "Continue working toward the objective in this same session.\n</goal_round>"
+        )

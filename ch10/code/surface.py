@@ -1,18 +1,18 @@
 """第 10 章教学重构：surface —— 产生 LLM 消息的事件的有序视图。
 
-[教学决策] 第 3 章只为 surface 预留了机制槽位（SurfaceOp 的 replace，
-packages/core/types.ts:372-374），教学代码未实现；本章把这个槽位实现出来，
-以支撑 compaction「压缩旧上下文、替换 surface 区间」的动作。
+[教学决策] 第 2 章的 Session 省略了 surface/surfaceOp（当时标注「第 10 章机制」），
+本章把这个槽位实现出来，以支撑 compaction「压缩旧上下文、替换 surface 区间」的动作。
 
-源码对应（packages/core/session/）：
-- SurfaceSession.surface             ↔ Session 的有序 surface 节点列（产生 LLM 消息的事件）
-- SurfaceSession.replace_generation  ↔ surface 的 replaceGeneration（压缩事务稳定性断言，
-                                       compaction/index.ts:154 assertStable）
-- surface_op {'op':'replace',...}    ↔ SurfaceOp 的 replace 形态（types.ts:372-374）
+源码对应（HEAD 8bd0733）：
+- SurfaceSession.surface             ↔ Session 的有序 surface 节点列（packages/core/session/src/surface.ts:247）
+- SurfaceSession.replace_generation  ↔ surface 的 replaceGeneration（packages/core/session/src/surface.ts:571
+                                       每次 replace +1；压缩事务的稳定性断言读它）
+- surface_op {'op':'replace',...}    ↔ SurfaceOp 的 replace 形态（packages/core/session/src/types.ts:470-472）
+- append(type, payload, surface_op)  ↔ Session.append 的 SurfaceIntent 第三段（packages/core/session/src/types.ts:478-486）
 
-surface 事件类型只有三种（SurfaceEventType，types.ts:354-358）：
-user/message、assistant/message、tool/result。compaction/* 事件是 log-only，
-只进追加式 log、不进 surface。
+surface 事件类型在 HEAD 有五种（SurfaceEventType，packages/core/session/src/types.ts:447-453）：
+system/message、developer/message、user/message、assistant/message、tool/result。
+教学版只留后三种；compaction/* 事件是 log-only，只进追加式 log、不进 surface。
 """
 import os
 import sys
@@ -26,8 +26,9 @@ for _p in (_CH01, _CH02):
 
 from agent_loop import Session  # noqa: E402  (ch02)
 
-# surface 事件类型（SurfaceEventType，types.ts:354-358）：
-# 只有这三种事件会产生 LLM 消息、进入有序 surface。
+# surface 事件类型：类型定义见 packages/core/session/src/types.ts:447-453（SurfaceEventType），
+# 运行时常量见 packages/core/session/src/surface.ts:49-56（SURFACE_EVENT_TYPES）。
+# 真实版有五种（多出 system/message、developer/message），教学版只保留后三种。
 SURFACE_EVENT_TYPES = ("user/message", "assistant/message", "tool/result")
 
 
@@ -50,10 +51,14 @@ class SurfaceSession(Session):
     def append(self, type, payload=None, surface_op=None):
         """追加事件；若是 surface 事件，按 surface_op 更新 surface。
 
-        surface_op 两种形态（SurfaceOp，types.ts:372-374）：
+        surface_op 两种形态（SurfaceOp，packages/core/session/src/types.ts:470-472）：
         - None（等价 'append'）：追加到 surface 尾部（默认）；
         - {'op': 'replace', 'start': i, 'end': j}：用本事件这一个节点
           替换 surface[i:j] 整段区间（压缩摘要落盘就走这条）。
+        [教学简化] 真实版写作 {op:'replace', startSeq, endSeq}，两端是 surface 上的
+        seq 闭区间，而且这条新事件还必须用 sourceEventSeqs 列出被它顶替的全部节点
+        （packages/core/session/src/types.ts:464-468）；教学版 surface 就是位置索引，
+        所以直接用下标，也不记 sourceEventSeqs。
         """
         event = super().append(type, payload)
         if type in SURFACE_EVENT_TYPES:

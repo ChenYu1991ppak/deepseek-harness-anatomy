@@ -3,8 +3,8 @@
 仅标准库，Python 3.10+。运行：python3 main.py
 
 演示段落（与正文小节一一对应）：
-1. preset standing mount：一个 preset 只挂一次，多 agent join 同一组合实例（§2 题眼）
-2. 双守卫：inactiveRows / leakedServices 拦下不完整或泄漏的挂载（§3）
+1. preset revision 保留：每个 Agent 绑定创建时那一代，新 revision 不打扰旧 Agent（§2 题眼）
+2. 挂载守卫：auditRows / leakedServices 拦下没起来的行与泄漏到进程级的服务（§3）
 3. bundle：patch 而非 merge——insert / override / disable 增量修改（§4 题眼）
 4. profile 栈 + boot：把 bundle 串成栈、拍平成 entry 列表并激活（§5）
 """
@@ -23,47 +23,65 @@ from bundle import BUNDLE_REGISTRY  # noqa: E402
 from profile import Profile, load_profile, compose_entries, boot  # noqa: E402
 from preset import PresetService, PresetMountError  # noqa: E402
 
+WRITER_V1 = [
+    {"id": "persona"},
+    {"id": "tool-bash"},
+    {"id": "system-prompt-section"},
+]
+WRITER_V2 = [
+    {"id": "persona"},
+    {"id": "tool-bash"},
+    {"id": "system-prompt-section"},
+    {"id": "tool-web"},             # 新 revision 多了一个工具
+]
 
-def demo_standing_mount():
-    """段 1：standing mount——一个 preset 只挂一次，多 agent join 同一组合实例。"""
-    print("== 段 1：preset standing mount —— 一个 preset 只挂一次，多 agent join ==")
-    presets = {
-        "writer-preset": [
-            {"id": "persona"},
-            {"id": "tool-bash"},
-            {"id": "system-prompt-section"},
-        ],
-    }
+
+def demo_revision_binding():
+    """段 1：Agent 绑定创建时的 revision——新 revision 生效，旧 Agent 仍用旧组合。"""
+    print("== 段 1：preset revision 保留 —— 新 revision 生效，旧 agent 仍用旧组合 ==")
     ctx = Context()
-    svc = PresetService(ctx, presets)      # 构造即注册：ctx.agentPresets 指向 svc
+    svc = PresetService(ctx)                 # 构造即注册：ctx.agentPresets 指向 svc
+    svc.register("writer", WRITER_V1)
 
-    mount_a = svc.mount("agent-a", "writer-preset")
-    mount_b = svc.mount("agent-b", "writer-preset")
+    # agent-a 在 revision 1 创建，绑定这一代
+    gen_a = svc.mount("agent-a", "writer")
+    print(f"agent-a 创建时绑定的 revision: {gen_a.revision}")
 
-    # mount_a is mount_b：两次 mount 拿到的是同一个 StandingMount 实例
-    print(f"agent-a 与 agent-b 拿到同一个组合实例: {mount_a is mount_b}")
-    # 真正挂载只发生一次，第二次命中的是常驻缓存
-    print(f"writer-preset 真正挂载次数: {svc.mount_times['writer-preset']}")
-    print(f"join 到该组合的 agent: {mount_a.joined}")
-    print(f"组合内服务（唯一一份，会话间共享）: {[s.id for s in mount_a.services]}")
+    # 声明被改：revision 进位到 2（旧代退役，但不回收）
+    svc.update("writer", WRITER_V2)
+
+    # agent-b 在 revision 2 创建，拿到的是新的一代
+    gen_b = svc.mount("agent-b", "writer")
+    print(f"agent-b 创建时绑定的 revision: {gen_b.revision}")
+    print(f"两代是同一个组合实例吗: {gen_a is gen_b}")
+    print(f"agent-a 现在仍绑定的 revision: {svc.current_of('agent-a').revision}")
+    print(f"agent-a 的组合里有没有 tool-web: {any(s.id == 'tool-web' for s in gen_a.services)}")
+    print(f"agent-b 的组合里有没有 tool-web: {any(s.id == 'tool-web' for s in gen_b.services)}")
+
+    # 同一 revision 内再建一个 agent：它和 agent-b 复用同一代
+    gen_c = svc.mount("agent-c", "writer")
+    print(f"同一 revision 内 agent-b 与 agent-c 复用同一代: {gen_b is gen_c}")
+
+    # 子代理加入父代理的同一代，不按 id 去取当前 revision
+    gen_child = svc.compose_from("agent-a-child", gen_a)
+    print(f"agent-a 的子代理与父代理同一代: {gen_child is gen_a}")
+    print(f"writer 累计真正挂载次数: {svc.mount_times['writer']}")
     print()
 
 
 def demo_guards():
-    """段 2：双守卫——「声明未激活」与「泄漏到进程级」的挂载都会被拦下。"""
-    print("== 段 2：双守卫 —— 为什么挂载要守卫 ==")
-    presets = {
-        "broken-inactive": [
-            {"id": "persona"},
-            {"id": "flaky-tool", "activated": False},   # 声明了，但不会被激活
-        ],
-        "broken-leak": [
-            {"id": "persona"},
-            {"id": "global-cache", "realm": "ROOT"},    # 注册到进程级 ROOT realm
-        ],
-    }
+    """段 2：挂载守卫——「行没起来」与「泄漏到进程级」的挂载都会被拦下。"""
+    print("== 段 2：挂载守卫 —— 为什么挂载要守卫 ==")
     ctx = Context()
-    svc = PresetService(ctx, presets)
+    svc = PresetService(ctx)
+    svc.register("broken-inactive", [
+        {"id": "persona"},
+        {"id": "flaky-tool", "activated": False},   # 声明了，但行没起来
+    ])
+    svc.register("broken-leak", [
+        {"id": "persona"},
+        {"id": "global-cache", "realm": "ROOT"},    # 服务发到了进程级 ROOT realm
+    ])
 
     for preset_id in ("broken-inactive", "broken-leak"):
         try:
@@ -90,7 +108,8 @@ def demo_patch_not_merge():
     by_id = {e["id"]: e for e in result}
 
     settings = by_id["settings"]
-    # override 是增量合并：只改 theme，lang 原样保留（整段 merge 会把 lang 弄丢）
+    # [教学简化] apply_entry_patches 的 override 按 key 浅合并，所以 lang 原样保留；
+    # 真实 patch 是整段替换被定向 entry 的 config，真实写法要把 lang 也写上
     print(f"override 只改 theme，lang 保留: settings.config = {settings['config']}")
     # disable 只翻禁用位，条目本身还在列表里（可追溯「它被谁关了」）
     print(f"disable 只翻禁用位: headless-startup.disabled = {by_id['headless-startup']['disabled']}")
@@ -102,8 +121,10 @@ def demo_patch_not_merge():
 def demo_profile_boot():
     """段 4：profile 把 bundle 串成栈，boot 拍平成 entry 列表并激活。"""
     print("== 段 4：profile 栈 + boot 拍平 ==")
-    # [教学决策] web 栈里保留 headless 层，是为了让「web-app 禁用前一层插入的
-    # headless-startup」有一个看得见的靶子；真实 web profile 的 bundles 名单可能不同。
+    # 真实 web 模板的 bundle 栈是 base → web-app（见
+    # packages/util/official-bundles/src/bundles.ts:14-16）。教学版多留一层
+    # headless，是为了让「web-app 禁用前一层插入的 headless-startup」有一个
+    # 看得见的靶子——headless 层自己插的正是这一行（headless/cordis.patch.yml:15）。
     web = Profile("web", ["base", "headless", "web-app"])
     stacked = load_profile(web, BUNDLE_REGISTRY)
     print(f"web profile 的 bundle 栈（栈底→栈顶）: {web.bundles}")
@@ -119,7 +140,7 @@ def demo_profile_boot():
 
 
 def main():
-    demo_standing_mount()
+    demo_revision_binding()
     demo_guards()
     demo_patch_not_merge()
     demo_profile_boot()

@@ -9,6 +9,14 @@
 
 本章新增：system_prompt.py（system-prompt 服务完整版）、
 context_plugins.py（机制 B 三插件）、prompt_agent.py（循环侧粘合）。
+
+源码对应（HEAD 8bd073392）：
+- 段落 1/2/4 的装配线        ↔ packages/core/system-prompt/src/index.ts:620 assemble
+- 段落 3 的 schema 接线      ↔ packages/core/tools/src/index.ts:113-117（构造器里
+  注册 systemPrompt.tools provider）；投影本体 projectToolSchema 在
+  packages/core/tools/src/schema.ts:641；systemPrompt.tools 定义在
+  packages/core/system-prompt/src/index.ts:551
+- 段落 5 的三种注入          ↔ context_plugins.py 文件头列出的三个插件
 """
 from __future__ import annotations
 
@@ -103,6 +111,7 @@ def demo_tools_field(ctx):
         execute=lambda args: f"[{args['path']} 的内容]",
     ))
     # 把 wireSchemas 接到 systemPrompt.tools()——第 4 章 wireSchemas 的真实落点
+    # 真实代码在 ToolsService 构造器里做同一件事（packages/core/tools/src/index.ts:113-117）
     ctx.systemPrompt.tools(lambda c: ctx.tools.wire_schemas())
 
     assembly = ctx.systemPrompt.assemble()

@@ -126,7 +126,7 @@ def append(type_, payload):
     return event
 
 append("user/message", {"text": "什么是 Cordis？"})
-append("assistant/chunk", {"text": "收到问题。"})
+append("assistant/chunk", {"text": "收到问题。"})  # [教学简化] HEAD 无 assistant/chunk 事件，见 §7
 print([e["seq"] for e in log])  # [0, 1]
 print(log[0]["type"])           # user/message
 ```
@@ -135,7 +135,7 @@ print(log[0]["type"])           # user/message
 
 ### 3.2 内部实现
 
-**Session**（会话）的定义：**一条 append-only 事件日志，是 agent 对话状态的唯一事实来源。** 日志里的每条记录是一个 **SessionEvent**（会话事件），带四个字段：`session_id`（属于哪个会话）、`seq`（序号）、`type`（事件类型）、`payload`（载荷）。
+**Session**（会话）的定义：**一条 append-only 事件日志，是 agent 对话状态的唯一事实来源。** 日志里的每条记录是一个 **SessionEvent**（会话事件），带 `seq`（序号）、`type`（事件类型）、`time`（时间戳）与 `data`（载荷）四个字段——会话身份不在事件里，它由所属的 `Session` 对象提供（真实源码把 payload 叫 `data`，`packages/core/session/src/types.ts:501-524`；教学版简化为 `session_id` / `payload`）。
 
 一次 `append` 的完整动作：
 
@@ -152,9 +152,13 @@ Session 有三条铁律：
 
 1. **append-only**：只追加，不修改、不删除。想「撤回」一条消息？那也是追加一条新的撤回事件，历史本身不动。
 2. **seq == len(log)**：序号就是追加前的日志长度，天然从 0 连续递增、无空洞。§6 的输出里 `seq=0` 到 `seq=8` 一条不缺，靠的就是这条契约。
-3. **事件不可变**：`SessionEvent` 用 `@dataclass(frozen=True)`，创建后任何字段不可改——写进去就冻住。
+3. **事件不可变**：`SessionEvent` 用 `@dataclass(frozen=True)`，创建后任何字段不可改——写进去就冻住；真实源码用 `deepFreeze`（`packages/util/values/src/index.ts:195`）。
 
-Session 本身不是服务，它由 **Sessions**（会话注册表服务，挂在 `ctx.sessions`）负责创建与查找：`create()` 分配 `session-0001` 这样的递增 id 并登记，`get()` 按 id 取回。一个容器可以有多个互不干扰的会话，状态各自独立。
+Session 本身不是服务，它由 **Sessions**（会话注册表服务，挂在 `ctx.sessions`）负责创建与查找：`create()` 分配 `session-0001` 这样的递增 id 并登记，`get()` 按 id 取回。一个容器可以有多个互不干扰的会话，状态各自独立。上游的注册表叫 `SessionStore`（`packages/core/session/src/index.ts:1064`），`create`（`packages/core/session/src/index.ts:1126`）→ `prepare`（`packages/core/session/src/index.ts:1158`）→ `enter`（`packages/core/session/src/index.ts:1231`）→ `announce`（`packages/core/session/src/index.ts:1287`）是一条四段链——先校验 id 与元数据（`prepare`，此时尚未入册），再挂进注册表（`enter`），最后才派发 `session/created`（`announce`）；拆开是为了让 agent-loop 把会话与驱动器收进同一个效应里按顺序拆装（§5.2 会看到调用现场）。
+
+上游 HEAD（`8bd0733`）把这个包拆成了 10 个 `.ts` 文件：`Session` 与 `SessionStore` 仍在 `packages/core/session/src/index.ts:525` 与 `packages/core/session/src/index.ts:1064`；surface（把事件折叠成模型消息）在 `packages/core/session/src/surface.ts:612`；`repair.ts:209` 补中断 turn；`fork.ts:21` 生成 fork 种子；`preparation.ts:9` 做两段式准备；其余是事件类型表与序号区间编码等小文件，本章不涉及。本章只用事件日志本身，surface 与它派生消息的 `deriveMessages()`（`packages/core/session/src/index.ts:999`）是同一件事——surface 是逐步折叠的增量状态，`deriveMessages` 是随时读出的快照；第 10 章展开。
+
+最后一条边界：`append` 只做两件事——校验并以 `seq = log.length` 造出冻结事件（`packages/core/session/src/index.ts:827-833`），再在 `commit` 里追加进 `log` 并通知 `session/event` 监听器（`packages/core/session/src/index.ts:901-905`）。落盘**不在 append 里**：持久化后端挂在同一条事件总线上，按 session id 把事件送进该会话活跃写句柄的批量窗（第 3 章讲的 live write path）。所以本章的「写回复」在真实系统里天然可持久化，教学版只保留内存日志。
 
 ### 3.3 Python 重构
 
@@ -167,9 +171,9 @@ Session 本身不是服务，它由 **Sessions**（会话注册表服务，挂�
 
 @dataclass(frozen=True)
 class SessionEvent:
-    """append-only 事件条目，对应 SessionEvent（packages/core/session/src/types.ts:404）。
+    """append-only 事件条目，对应 SessionEvent（packages/core/session/src/types.ts:501-524）。
 
-    [教学简化] 真实事件还带 timestamp 与 surface 元数据；frozen 对应 deepFreeze。
+    [教学简化] 真实事件字段是 type/seq/time/data，无 session_id，还可带 `ignorable`（:519）与 surface 元数据；frozen 对应 deepFreeze。
     """
 
     session_id: str
@@ -179,7 +183,7 @@ class SessionEvent:
 
 
 class Session:
-    """append-only 事件日志，对应 Session（packages/core/session/src/index.ts:425）。"""
+    """append-only 事件日志，对应 Session（packages/core/session/src/index.ts:525）。"""
 
     def __init__(self, ctx, session_id):
         self.ctx = ctx
@@ -187,7 +191,7 @@ class Session:
         self.log: list[SessionEvent] = []
 
     def append(self, type, payload):
-        """追加一条事件：seq == len(log)（index.ts:604-653），事件不可变（deepFreeze，index.ts:627）。
+        """追加一条事件：seq == len(log)（packages/core/session/src/index.ts:806-837），事件不可变（deepFreeze，packages/core/session/src/index.ts:827）。
 
         [教学简化] 省略 JSON 校验（append 内）与 surface/surfaceOp（第 10 章机制，G9）。
         """
@@ -198,9 +202,9 @@ class Session:
 
 
 class Sessions(Service):
-    """会话注册表服务 ctx.sessions，对应 SessionStore（packages/core/session/src/index.ts:792）。
+    """会话注册表服务 ctx.sessions，对应 SessionStore（packages/core/session/src/index.ts:1064）。
 
-    [教学简化] 真实版本有 prepare/commitPrepared 两段式创建与 enter/announce 登记；此处直接创建。
+    [教学简化] 真实 create() 走 prepare（:1158）→ enter（:1231）→ announce（:1287）三步；此处直接创建。
     """
 
     def __init__(self, ctx, config=None):
@@ -222,7 +226,7 @@ class Sessions(Service):
 
 ### 3.4 回溯：状态有了唯一事实来源，提示词从哪来
 
-问题 ① 解决：对话状态收敛到 `session.log` 这一个地方，回放就是重读日志，持久化就是把日志落盘（第 3 章的主题）。但循环要跑起来还缺一样东西——`step` 调模型时需要 system prompt，它从哪来？硬编码不可扩展（问题 ②），下一节解决。
+问题 ① 解决：对话状态收敛到 `session.log` 这一个地方，回放就是重读日志；持久化则是同一条事件流上另挂一个消费者，把事件交给 `SessionHandle` 批量落盘（第 3 章的主题）。但循环要跑起来还缺一样东西——`step` 调模型时需要 system prompt，它从哪来？硬编码不可扩展（问题 ②），下一节解决。
 
 ## 4. SystemPromptService：section 注册 + assemble
 
@@ -299,7 +303,7 @@ class PromptSection:
 
 @dataclass
 class PromptAssembly:
-    """组装快照，对应 PromptAssembly（packages/core/system-prompt/src/index.ts:115）。
+    """组装快照，对应 PromptAssembly（packages/core/system-prompt/src/index.ts:132）。
 
     [教学简化] 真实快照还含 variables/tools/contexts。
     """
@@ -308,9 +312,9 @@ class PromptAssembly:
 
 
 class SystemPromptService(Service):
-    """ctx.systemPrompt 最小版，对应真实项目 SystemPromptService（packages/core/system-prompt/src/index.ts:338）。
+    """ctx.systemPrompt 最小版，对应真实项目 SystemPrompt（packages/core/system-prompt/src/index.ts:435）。
 
-    [教学简化] 真实版有 section/variable/tool/context 四种注册；此处只保留 section。
+    [教学简化] 真实版有 section/context/tools/variable 四种注册（:484/:519/:551/:567）；此处只保留 section。
     """
 
     def __init__(self, ctx, config=None):
@@ -318,7 +322,7 @@ class SystemPromptService(Service):
         self._sections: list[PromptSection] = []
 
     def section(self, name, text, order=0):
-        """注册一个片段（index.ts:381）。注册即效应：卸载时自动移除。"""
+        """注册一个片段（packages/core/system-prompt/src/index.ts:484）。注册即效应：卸载时自动移除。"""
         entry = PromptSection(name, order, text)
 
         def setup():
@@ -328,9 +332,9 @@ class SystemPromptService(Service):
         return self.ctx.effect(setup)
 
     def assemble(self):
-        """按 order 升序组装，对应 assemble（index.ts:467）。
+        """按 order 升序组装，对应 assemble（packages/core/system-prompt/src/index.ts:620）。
 
-        [教学简化] 真实版还会派发 waterfall('system-prompt/assemble')（:467）并合并 variables/tools。
+        [教学简化] 真实版还会派发 waterfall('system-prompt/assemble')（packages/core/system-prompt/src/index.ts:683）并合并 variables/tools。
         """
         assembly = PromptAssembly()
         assembly.sections = sorted(self._sections, key=lambda s: s.order)
@@ -338,7 +342,7 @@ class SystemPromptService(Service):
 
 
 def render_prompt(assembly):
-    """sections → 过滤空 → \\n\\n 拼接，对应 renderPrompt（index.ts:212-217）。
+    """sections → 过滤空 → \\n\\n 拼接，对应 renderPrompt（packages/core/system-prompt/src/index.ts:296-301）。
 
     [教学简化] 省略 {{variable}} 插值。
     """
@@ -357,7 +361,7 @@ def render_prompt(assembly):
 
 ### 5.1 LlmStub：模型桩
 
-`step` 最终要调用模型。本章不接真实模型，用一个流式桩代替——调用方按真实 `LlmRuntime.stream` 的约定传入 `messages` 与 `system_prompt`；桩只消费 `messages`，其余进 `**options` 忽略，yield 一串 chunk。
+`step` 最终要调用模型。本章不接真实模型，用一个流式桩代替——桩按真实 `LlmRuntime.stream` 的形参形状接 `messages` 与 `system_prompt`；它只消费 `messages`，其余进 `**options` 忽略，yield 一串 chunk。`system_prompt` 是教学版为 §4 的成果留的入口：真实 loop 不传它，system 提示词作为 `system/message` 事件进历史（§5.6 末段细说）。
 
 ```python
 # ch02/code/agent_loop.py（本章新增）
@@ -368,7 +372,9 @@ class LlmStub:
     """[教学简化] ctx.llm 服务的桩：无需真实模型。
 
     stream() 是生成器，yield 3 个写死的文本 chunk + 1 个 finish，
-    对应 LlmRuntime.stream（packages/llm/llm/src/index.ts:913 → streamWithRegistration :917）与 StreamChunk 协议（types.ts:291）。
+    对应 LlmRuntime.stream（packages/llm/llm/src/index.ts:1170 → streamWithRegistration
+    packages/llm/llm/src/index.ts:1174）与 StreamChunk 协议（packages/llm/llm/src/types.ts:496-508）。
+    [教学简化] 真实 finish chunk 的形状是 {type: 'finish', reason}；教学版用 stop_reason 简写。
     [教学决策 G7] 真实版是 async 流；教学版用同步生成器，机制语义不变。
     """
 
@@ -383,7 +389,7 @@ class LlmStub:
         yield {"type": "finish", "stop_reason": "end-turn"}
 ```
 
-注意 `stream` 是生成器：它先从 `messages` 最后一条取文本回显进第一个 chunk（所以 §6 输出里能看到「收到问题「什么是 Cordis？」。」），再 yield 两段写死的文本，最后一个 `finish` chunk 携带 `stop_reason="end-turn"`（教学版 `step` 只消费 `text-delta`，`finish` 原样略过）。`main.py` 第 2 段用 `ctx.provide("llm", LlmStub())` 把它挂进容器——它是普通对象而非 `Service` 子类，所以走显式 `provide`（第 1 章两种注册方式之一）。
+注意 `stream` 是生成器：它先从 `messages` 最后一条取文本回显进第一个 chunk（所以 §6 输出里能看到「收到问题「什么是 Cordis？」。」），再 yield 两段写死的文本，最后一个 `finish` chunk 携带 `stop_reason="end-turn"`（教学版 `step` 只消费 `text-delta`，`finish` 原样略过）。`[教学简化]` 真实 `finish` chunk 的字段是 `reason`，且 `end-turn` 不是真实枚举值——真实循环用 `TurnEndReason` 判别联合（`completed` / `max-tokens` / `blocked` / `aborted` / `error`），见 `packages/llm/llm/src/types.ts:503-508`。`main.py` 第 2 段用 `ctx.provide("llm", LlmStub())` 把它挂进容器——它是普通对象而非 `Service` 子类，所以走显式 `provide`（第 1 章两种注册方式之一）。
 
 chunk 最终要被拼装成一条完整的 assistant 消息，靠的是模块级函数 `create_assistant_message`：
 
@@ -393,10 +399,10 @@ chunk 最终要被拼装成一条完整的 assistant 消息，靠的是模块级
 
 
 def create_assistant_message(text, source_event_seqs):
-    """流式文本 → 不可变 assistant 消息，对应 createAssistantMessage（packages/llm/llm/src/message.ts:206-217）。
+    """流式文本 → 不可变 assistant 消息，对应 createAssistantMessage（packages/llm/llm/src/message.ts:260-271）。
 
     [教学简化] 真实版接收 ContentBlock[] 与 source；此处接收已拼好的文本。
-    [教学决策 G10] 省略 BlockAssembler 块归一化（assembler.ts:134-139），直接拼接文本。
+    [教学决策 G10] 省略 BlockAssembler 块归一化（`packages/llm/llm/src/assembler.ts:158-163`），直接拼接文本。
     """
     return {
         "role": "assistant",
@@ -418,11 +424,12 @@ def create_assistant_message(text, source_event_seqs):
 
 
 class AgentLoop(Service):
-    """agent-loop 服务，对应 AgentLoop（packages/core/agent-loop/src/index.ts:296）。
+    """agent-loop 服务，对应 AgentLoop（packages/core/agent-loop/src/index.ts:290）。
 
-    inject 声明对应 static inject（index.ts:296-297）：sessions/llm 都提供后才加载。
-    [教学简化] 真实版 create() 与 publish() 两段（create :589；publish :556-570：
-    sessions.enter → agents.enter → announce → 广播）；教学版合并为一个 create()。
+    inject 声明对应 static inject（packages/core/agent-loop/src/index.ts:292）：真实版要求
+    agents/sessions/llm/tools/systemPrompt/sessionProjections 六个依赖；教学版只取两个。
+    [教学简化] 真实版 create()（:667）→ initializeAgent()（:464）两段，发布时
+    sessions.enter → sessions.announce → agents.enter → agents.announce；教学版合并为一个 create()。
     """
 
     inject = ["sessions", "llm"]
@@ -436,18 +443,22 @@ class AgentLoop(Service):
         session = self.ctx.sessions.create()
         agent = ReactLoopAgent(self.ctx, session, options)
         self.agents[session.id] = agent
-        # 真实 publish() 在 sessions.enter/agents.enter/announce 后广播 agent/session-start（index.ts:556-570）
+        # 真实 initializeAgent 在 sessions.enter/announce 与 agents.enter/announce 之后才返回 agent（packages/core/agent-loop/src/index.ts:626-637）
         self.ctx.emit("agent/session-start", {"session_id": session.id, "agent": agent})
         return agent
 ```
 
 `inject = ["sessions", "llm"]` 是类属性形式的依赖声明：`sessions` 与 `llm` 都提供后才加载。`main.py` 第 4 段里 `ctx.plugin(AgentLoop)` 立即 active，正是因为第 1、2 段已经把两个依赖备齐了。
 
-`create()` 的顺序值得注意：先建 Session，再建 Agent，登记后才广播 `agent/session-start`。广播是最后一步——监听器收到事件时，一切已就绪。
+`create()` 的顺序是：先建 Session，再建 Agent，登记后才广播 `agent/session-start`。广播是最后一步——监听器收到事件时，一切已就绪。真实版把这段顺序写得很重：`initializeAgent` 里先 `sessions.enter` / `sessions.announce` 让会话入册并派发 `session/created`，再 `agents.enter` / `agents.announce` 派发 `agent/created`（`packages/core/agent-loop/src/index.ts:626-637`），注册表里同时能看到会话与 agent 后，调用方才拿得到句柄。教学版没有 `agents` 注册表，用一条事件代替。
 
 ### 5.3 Inbox 与 ReactLoopAgent：send / wake_driver / kick
 
-`AgentLoop.create()` 建出的驱动器是 **ReactLoopAgent**（反应式循环驱动器）。它自带一个 **Inbox**（待处理消息队列）：`enqueue` 入队、`claim()` 在 step 边界一次性取走全部、`has_pending` 判断是否还有剩余。
+`AgentLoop.create()` 建出的驱动器是 **ReactLoopAgent**（反应式循环驱动器）。它自带一个 **Inbox**（待处理消息队列）：`enqueue` 入队、`claim()` 在 step 边界一次性取走整批、`has_pending` 判断是否还有剩余。
+
+上游 HEAD 里 inbox 是独立文件 `packages/core/agent-loop/src/inbox.ts`，类名 `ReactLoopInbox`。它原本也独立，只是住在另一个包：基线时是 `core/agent` 包 `inbox.ts` 第 25 行的 `Inbox`，HEAD 经 commit `1101422362`（refactor(agent): keep concrete inbox loop-internal）把实现从公共包迁进 agent-loop 并改名——是跨包搬迁 + 改名，不是从 `agent.ts` 里拆出来。
+
+`ReactLoopInbox` 对外是四个动作：两条队列 `next-turn`（排队等整轮）与 `next-step`（下一步就要用，`splice` 的 `target` 就是二选一）；`claim(target, turn)` 按 target 把对应的一条或整批取走（`packages/core/agent-loop/src/inbox.ts:108`）；`hasPending` 问两条队列是否都空；`splice(target, start, deleteCount, inserted)` 在指定位置插入或删除消息（`packages/core/agent-loop/src/inbox.ts:166`），教学版只有一个 `deque`，所以叫 `enqueue`。它还承担一件教学版省掉的事——每次入队、取走、删除都折成一条 `agent/inbox/spliced` 会话事件（`packages/core/agent-loop/src/inbox.ts:223`），再由同文件的 `inboxProjectionDefinition` 把它折回两条队列（`packages/core/agent-loop/src/inbox.ts:26`），于是待处理消息在重启后能从事件流里重建。本章只讲队列语义，`next-step` 对应的 `steer` / `inject` 仍按「本章省略」处理。
 
 ```python
 # ch02/code/agent_loop.py（本章新增）
@@ -455,9 +466,9 @@ class AgentLoop(Service):
 
 
 class Inbox:
-    """待处理队列，对应 Inbox（packages/core/agent-loop/src/inbox.ts:25）。
+    """待处理队列，对应 ReactLoopInbox（packages/core/agent-loop/src/inbox.ts:73）。
 
-    [教学简化] 只实现 next_turn；next_step（steer/inject，agent.ts:126/:130）本章不展开。
+    [教学简化] 只实现 next-turn 一条队列；next-step（steer/inject，packages/core/agent-loop/src/agent.ts:183/:187）本章不展开。
     """
 
     def __init__(self):
@@ -467,7 +478,7 @@ class Inbox:
         self.next_turn.append(message)
 
     def claim(self):
-        """在 step 边界一次性取走全部待处理消息（inbox.ts claim）。"""
+        """在 step 边界一次性取走整批待处理消息（packages/core/agent-loop/src/inbox.ts:108）。"""
         claimed = list(self.next_turn)
         self.next_turn.clear()
         return claimed
@@ -480,14 +491,14 @@ class Inbox:
 驱动器的入口是三件套：`send` 入队并唤醒、`wake_driver` 是进入 running 相位的唯一入口、`kick` 是最外层驱动循环。下面展示 `ReactLoopAgent` 的前半部分（类定义到 `kick`，`turn`/`pre_step`/`step` 见 §5.4–§5.6）：
 
 ```python
-# ch02/code/agent_loop.py 行 226-284（连续摘录；完整类见行 229-337）
+# ch02/code/agent_loop.py 行 236-294（连续摘录；完整类见行 236-350）
 # ---------- ReactLoopAgent：反应式循环驱动器 ----------
 
 
 class ReactLoopAgent:
-    """反应式循环驱动器，对应 ReactLoopAgent（packages/core/agent-loop/src/agent.ts:64）。
+    """反应式循环驱动器，对应 ReactLoopAgent（packages/core/agent-loop/src/agent.ts:112）。
 
-    [教学简化] 真实代码的 phase 是判别联合（idle/running/...，agent.ts:217-221）；
+    [教学简化] 真实代码的 phase 是判别联合 idle/maintenance/running（packages/core/agent-loop/src/agent.ts:53）；
     教学版用一个字符串字段表达 idle/running 两相。
     """
 
@@ -499,12 +510,13 @@ class ReactLoopAgent:
         self.phase = "idle"
         self._wake_requested = False
 
-    # -- 入队口（agent.ts:113-132；steer/inject 本章省略） --
+    # -- 入队口（packages/core/agent-loop/src/agent.ts:170-189；steer/inject 本章省略） --
 
     def send(self, message, wakeup=True):
-        """入队 + 唤醒（agent.ts:113-118）。
+        """入队 + 唤醒（packages/core/agent-loop/src/agent.ts:170-177）。
 
-        [教学简化] 省略 wakingAfterAbort 分支（agent.ts:114-117）。
+        [教学简化] 省略 wakingAfterAbort 分支（packages/core/agent-loop/src/agent.ts:171-174）：
+        真实 send() 还带 target 参数，入队走 inbox.splice。
         """
         if isinstance(message, str):
             message = {"role": "user", "content": message}
@@ -513,13 +525,13 @@ class ReactLoopAgent:
             self.wake_driver()
 
     def followup(self, message):
-        """用户追问：入 next_turn 并立即唤醒（agent.ts:121）。"""
+        """用户追问：入 next-turn 并立即唤醒（packages/core/agent-loop/src/agent.ts:179-181）。"""
         self.send(message, wakeup=True)
 
     # -- 驱动循环 --
 
     def wake_driver(self):
-        """进入 running 相位的唯一入口（agent.ts:172）。"""
+        """进入 running 相位的唯一入口（packages/core/agent-loop/src/agent.ts:230）。"""
         if self.phase == "running":
             self._wake_requested = True
             return
@@ -528,15 +540,16 @@ class ReactLoopAgent:
             self.kick()
         finally:
             self.phase = "idle"
-            # 真实代码 kick finally：wakeRequested 且 inbox.hasPending → 再 wakeDriver（agent.ts:215-222）
+            # 真实代码 kick finally：wakeRequested 且 inbox.hasPending → 再 wakeDriver（packages/core/agent-loop/src/agent.ts:275-279）
             if self._wake_requested and self.inbox.has_pending:
                 self._wake_requested = False
                 self.wake_driver()
 
     def kick(self):
-        """kick() → while (await turn()) {}（agent.ts:210-223）。
+        """kick() → while (await turn()) {}（packages/core/agent-loop/src/agent.ts:268-281）。
 
-        [教学简化] 真实代码 catch 在驱动边界吞掉已上报错误（agent.ts:212-213）。
+        [教学简化] 真实代码 catch 在驱动边界吞掉错误（packages/core/agent-loop/src/agent.ts:271-272），
+        finally 里把 phase 归零并在需要时再唤醒。
         """
         while self.turn():
             pass
@@ -544,15 +557,17 @@ class ReactLoopAgent:
 
 `kick` 只有一行循环：`while self.turn()`。turn 说继续就继续——「继续」的判定标准是 inbox 是否仍有 pending。`wake_driver` 则保证同一时刻只有一个 kick 在跑：已在 running 时只登记一次「唤醒请求」，等当前 kick 收尾再决定是否重入。
 
+实际执行被包成 `wakeDriver` 开的异步活动：置 `running` 相位后，`kick()` 在 `agents.withInitiator(this, ...)` 里启动（`packages/core/agent-loop/src/agent.ts:250`），finally 里若 `wakeRequested && inbox.hasPending` 再调一次 `wakeDriver`（`packages/core/agent-loop/src/agent.ts:275-279`）。也就是说「同一时刻只跑一个循环」不是靠锁，而是靠相位本身：非 idle 时 `wakeDriver` 只落一个布尔标记。
+
 ### 5.4 turn()：一轮对话与 turn-stopping
 
 **turn**（一轮对话）是 kick 循环的单位。一轮里依次发生：`turn/start` → `step/start` → 逐条 `user/message` → `step` → `step/end` → turn-stopping 询问 → `turn/end`。
 
 ```python
-# ch02/code/agent_loop.py 行 286-305（连续摘录）
+# ch02/code/agent_loop.py 行 297-317（连续摘录）
     def turn(self):
         """一个 turn：turn/start → pre_step → step/start → user/message → step → step/end
-        → turn-stopping → turn/end（turn() agent.ts:246-330）。
+        → turn-stopping → turn/end（turn() packages/core/agent-loop/src/agent.ts:327-433）。
 
         返回是否续跑。[教学决策 G5] 判定取「inbox 是否仍有 pending」。
         """
@@ -560,19 +575,21 @@ class ReactLoopAgent:
             return False
         self.session.append("turn/start", {})
         snapshot = self.pre_step()
-        # 真实源码顺序：step/start（:279）→ 逐条 user/message（:283）→ step() 调用（:287）（agent.ts:246-330 内）
+        # 真实源码顺序：step/start（:361）→ 逐条 user/message（:467-477）→ step() 调用（:370）（`packages/core/agent-loop/src/agent.ts:344-401` 内）
         self.session.append("step/start", {})
         for message in snapshot["claimed"]:
             self.session.append("user/message", {"message": message})
         self.step(snapshot)
         self.session.append("step/end", {})
-        # turn-stopping：真实代码在无 next-step 待处理时 serial('agent/turn-stopping') 后 break（agent.ts:296）
+        # turn-stopping：真实代码在无 next-step 待处理时 serial('agent/turn-stopping') 后 break（packages/core/agent-loop/src/agent.ts:395-399）
         stop = self.ctx.serial("agent/turn-stopping", self)
         self.session.append("turn/end", {"reason": stop or "completed"})
         return self.inbox.has_pending
 ```
 
 第 1 章讲 `serial` 时只给了语义——「监听器依次执行，任一返回非空值即停止并返回该值」。这里它第一次真正派上用场：**turn-stopping 询问**。`step` 结束后，turn 通过 `serial("agent/turn-stopping", self)` 问所有监听器「要不要停下」：谁返回非空字符串（比如错误原因），turn 就以该原因收尾；没人拦截，`stop` 为 `None`，`turn/end` 的 reason 落为 `"completed"`。§6 输出末尾 `[seq=8] turn/end: {'reason': 'completed'}` 就是这条路径的产物。
+
+真实 turn 的形状比这张代码摘录厚得多：`turn/start` 带 `{turn}` 计数（`packages/core/agent-loop/src/agent.ts:336`）；内层 `while (true)` 允许一 turn 多 step，每步先 `preStep` 再判定 enter/reject（`:344`）；`turn/end` 的 reason 是判别联合 `TurnEndReason`（`completed` / `max-tokens` / `blocked` / `aborted` / `error`，`packages/core/session/src/types.ts:303`），不再是可空字符串。turn 收尾时还有一步容易被忽略的清理：若 inbox 仍有 pending，就换一个全新的 `AbortController` 并清掉旧的唤醒标记，才返回 `true` 让 kick 进下一轮（`packages/core/agent-loop/src/agent.ts:427-432`）。
 
 turn 的返回值决定是否续跑：inbox 仍有 pending 就返回 `True`，kick 进入下一轮；本章只发一条消息，一轮后 inbox 为空，循环退出。
 
@@ -581,9 +598,9 @@ turn 的返回值决定是否续跑：inbox 仍有 pending 就返回 `True`，ki
 turn 开工后的第一个动作是 `pre_step()`：组装 prompt、取走消息、经 waterfall 放行拦截。
 
 ```python
-# ch02/code/agent_loop.py 行 307-315（连续摘录）
+# ch02/code/agent_loop.py 行 319-328（连续摘录）
     def pre_step(self):
-        """step 前奏：取消息 → 组装 prompt → waterfall('agent/pre-step') 放行拦截（agent.ts:225-243）。"""
+        """step 前奏：取消息 → 组装 prompt → waterfall('agent/pre-step') 放行拦截（packages/core/agent-loop/src/agent.ts:283-317）。"""
         assembly = self.ctx.systemPrompt.assemble()
         snapshot = {
             "claimed": self.inbox.claim(),
@@ -593,25 +610,25 @@ turn 开工后的第一个动作是 `pre_step()`：组装 prompt、取走消息�
         return self.ctx.waterfall("agent/pre-step", snapshot)
 ```
 
-第 1 章讲 `waterfall` 时也只给了语义——「初始值依次穿过监听器，每个监听器返回新值」。这里它第一次真正派上用场：**pre-step 放行拦截**。`snapshot` 字典是本 step 的输入快照，三个键：`claimed`（刚从 inbox 取走的消息列表）、`assembly`（§4 的 prompt 组装结果）、`additional_contexts`（waterfall 沿途可追加的上下文）。快照穿过 `agent/pre-step` 上的监听器，每个监听器可以修改它再传给下一个——`main.py` 第 5 段注册的时间上下文就在这里被追加进 `additional_contexts`。
+第 1 章讲 `waterfall` 时也只给了语义——「监听器依次拿到上一个的值、各自返回新值」。这里它第一次真正派上用场：**pre-step 放行拦截**。`snapshot` 字典是本 step 的输入快照，三个键：`claimed`（刚从 inbox 取走的消息列表）、`assembly`（§4 的 prompt 组装结果）、`additional_contexts`（waterfall 沿途可追加的上下文）。快照穿过 `agent/pre-step` 上的监听器，每个监听器可以修改它再传给下一个——`main.py` 第 5 段注册的时间上下文就在这里被追加进 `additional_contexts`。
 
 两条上下文路径在此汇合：section 注册的 `identity` 在 `assembly` 里（一次注册、长期有效），waterfall 注入的时间在 `additional_contexts` 里（每次 step 现算）。
 
 ### 5.6 step()：一次模型调用
 
-**step**（一次模型调用）是循环的最内层，分三段：组装输入、流式消费、拼装写回。
+**step**（一次模型调用）是循环的最内层，分三段：组装输入、流式消费、拼装写回。上游 HEAD 的三段之间还夹着两层：组装前先拿本次 step 的工具集（`tools.resolve`，`packages/core/agent-loop/src/agent.ts:292`），流式前要提交系统提示词与上下文消息（`system/message` 与 `user/message`，`packages/core/agent-loop/src/agent.ts:459-477`），流式后由 `AssistantStreamAttempt` 把 chunk 折成 `assistant/message` 或失败时的 `assistant/attempt`（`packages/core/agent-loop/src/assistant-stream.ts:18`）。
 
 ```python
-# ch02/code/agent_loop.py 行 317-337（连续摘录）
+# ch02/code/agent_loop.py 行 330-350（连续摘录）
     def step(self, snapshot):
-        """一次模型调用（agent.ts:332-401）。
+        """一次模型调用（packages/core/agent-loop/src/agent.ts:435-610）。
 
         [教学简化] 真实代码一个 turn 内可循环多个 step（tool-call 驱动）；本章无工具，一 turn 一 step。
         """
         claimed = snapshot["claimed"]
         assembly = snapshot["assembly"]
         system_text = render_prompt(assembly)
-        # [教学简化] 真实代码经 deriveMessages 派生模型消息（session/src/index.ts:726-747）
+        # [教学简化] 真实代码经 deriveMessages 派生模型消息（packages/core/session/src/index.ts:999-1020）
         messages = [{"role": "user", "content": text} for text in snapshot["additional_contexts"]]
         messages += [{"role": "user", "content": m["content"]} for m in claimed]
 
@@ -623,7 +640,7 @@ turn 开工后的第一个动作是 `pre_step()`：组装 prompt、取走消息�
                 text_parts.append(chunk["text"])
         message = create_assistant_message("".join(text_parts), chunk_seqs)
         self.session.append("assistant/message", {"message": message})
-        return "completed"  # 无 tool-call → 本轮结束（agent.ts:332-401）
+        return "completed"  # 无 tool-call → 本轮结束（packages/core/agent-loop/src/agent.ts:435-610）
 ```
 
 三段逐一拆开：
@@ -632,7 +649,9 @@ turn 开工后的第一个动作是 `pre_step()`：组装 prompt、取走消息�
 2. **流式消费**：`ctx.llm.stream(...)` 逐 chunk 返回，每个 `text-delta` 立即 `append` 成一条 `assistant/chunk` 事件——chunk 不是攒完再写，而是边流边进事件流；`event.seq` 记入 `chunk_seqs`，文本记入 `text_parts`。
 3. **拼装写回**：`create_assistant_message` 把文本拼成完整消息（`chunk_seqs` 落为消息的 `source_event_seqs` 字段），`append` 成 `assistant/message` 事件。
 
-注意 `turn()` 里 `self.step(snapshot)` 丢弃了返回值：教学版 `step` 固定返回 `"completed"`——没有工具就没有「下一步」，turn 不需要读它；真实源码里 step 还可能返回 `waiting_approval` 等状态，由 turn 据此决定是否继续（工具驱动的多步循环见第 4 章）。另一个细节：`LlmStub` 最后 yield 的 `finish` chunk 携带本轮 stop_reason，教学版 step 只消费 `text-delta`，不读 finish。
+注意 `turn()` 里 `self.step(snapshot)` 丢弃了返回值：教学版 `step` 固定返回 `"completed"`——没有工具就没有「下一步」，turn 不需要读它。真实 `step` 返回 `StepEndReason | null`：`null` 表示工具结果里要求继续，返回 `{kind:'completed'}` 才收尾（`packages/core/agent-loop/src/agent.ts:597`）；turn 用这个返回值给 `turnEnds` 定调，再决定下一轮 step 还是 break（工具驱动的多步循环见第 4 章）。另一个细节：`LlmStub` 最后 yield 的 `finish` chunk 携带本轮终止原因，教学版 step 只消费 `text-delta`，不读 finish；真实协议里 `finish` 的字段是 `reason` 而不是 `stop_reason`（`packages/llm/llm/src/types.ts:503-508`）。
+
+还有一处协议口径要交代清楚。本章的 `LlmStub` 是按「一次模型调用 = 一串 `StreamChunk`」来写的，这也是整个仓库里 agent-loop 与 LLM 适配层之间的接口；至于某家 provider 的线缆协议（Messages 事件流、SDK 事件等）如何被翻译成这套 chunk，是第 7 章的事。真实 loop 组请求时也不传 `system_prompt` 这种参数：system 提示词作为一条 `system/message` 事件进历史，由 `deriveMessages` 折成消息数组；`GenerateOptions.system` 只给一次性调用方用（`packages/llm/llm/src/types.ts:581`）。
 
 ### 5.7 时序图：一条消息的完整旅程
 
@@ -647,6 +666,7 @@ sequenceDiagram
 
     U->>A: followup("什么是 Cordis？")
     A->>I: enqueue(message)
+    A->>A: wake_driver：idle → running
     A->>A: kick()
 
     loop kick：while turn()
@@ -660,7 +680,7 @@ sequenceDiagram
     A-->>U: 回到 idle
 ```
 
-图只画主干旅程：消息入队 → `kick` 驱动循环 → 每轮 `turn` 里组装提示词、取消息、调模型、把事件写进 Session → 无待处理消息时退出。`waterfall` / `serial` / `render_prompt` 等内部细节与逐条 `append` 的 seq 号不在此图——前者见上方各方法代码，九个事件的完整序列见 §6 的实际输出，事件类型与源码的对应见 §7 源码对照。
+图只画主干旅程：消息入队 → `wake_driver` 把相位从 idle 切到 running 并启动 `kick` → 每轮 `turn` 里取消息、组装提示词、调模型、把事件写进 Session → 无待处理消息时退出。图里的顺序跟教学版 `pre_step` 一致（先 assemble 再 claim）；真实 `preStep` 恰好相反，`claim`（`packages/core/agent-loop/src/agent.ts:288`）先于 `assemble`（`packages/core/agent-loop/src/agent.ts:294`）。`waterfall` / `serial` / `render_prompt` 等内部细节与逐条 `append` 的 seq 号不在此图——前者见上方各方法代码，九个事件的完整序列见 §6 的实际输出，事件类型与源码的对应见 §7 源码对照。
 
 至此问题 ③ 解决：驱动循环的不是调用方的手写 while，而是容器装配出的 `AgentLoop` → `ReactLoopAgent` → kick/turn/step 三层循环。消息从 `followup` 进去，回复以事件的形式落进 Session，一条消息进、一条回复出。
 
@@ -672,7 +692,7 @@ sequenceDiagram
 
 ```python
 # ch02/code/main.py（本章可运行入口）
-# ... docstring 与 sys.path 跨章导入样板（第 1-12 行 docstring + 第 16-20 行路径设置）从略，见代码文件 ...
+# ... 第 1-12 行 docstring 与第 16-20 行 sys.path 跨章导入样板从略，见代码文件；下面第 13-14 行 import 原样保留 ...
 
 import os
 import sys
@@ -817,21 +837,23 @@ python3 ch02/code/main.py
 
 ## 7. 源码对照
 
-本章机制基于 `/home/chenyu/deepseek-harness` 源码（git HEAD `abe560f81e`，release 0.1.0-rc.5）。事件类型词汇取自 `SessionEventMap`（`packages/core/session/src/types.ts:236`，成员：turn/start :243、turn/end :252、step/start :254、step/end :256、user/message :264、assistant/chunk :266、assistant/message :273），本章事件序列是该词汇的子集。
+本章机制基于 `/Users/chenyu/PycharmProjects/deepseek-harness` 源码（上游 HEAD `8bd0733`，dsh-v0.2.2-alpha.3）。事件类型词汇取自 `SessionEventMap`（`packages/core/session/src/types.ts:287`，成员：turn/start :294、turn/end :303、step/start :305、step/end :307、user/message :315、assistant/message :349、assistant/attempt :363、tool/call :369、tool/result :383）。除教学版保留的 `assistant/chunk` 外，本章事件序列都是该词汇的子集；`assistant/chunk` 在这个映射里没有对应成员，原因见下一段。
+
+`[教学简化]` 有一处需要点明的口径差异：上游 HEAD 里没有 `assistant/chunk` 这个事件类型——流式 chunk 不再逐条进日志，而是由 `AssistantStreamAttempt` 在内存里累积，结束时落一条 `assistant/message`（成功）或 `assistant/attempt`（失败、中断），见 `packages/core/agent-loop/src/assistant-stream.ts:18`。教学版保留逐条 `assistant/chunk`，是为了让「边流边进事件流」看得见；真实系统只在会话历史里留最终消息，活帧走 `agent/assistant-stream` 通知。
 
 | 运行时机制 | 源码位置 | 教学版差异概括 |
 |-----------|---------|---------------|
-| Session（append-only 事件日志） | `packages/core/session/src/index.ts:425`；`append()` :604-653；事件广播 `session/event` :76 | 省略 JSON 校验、timestamp、surface/surfaceOp；保留 seq == len(log) 与事件不可变（frozen dataclass 对应 deepFreeze） |
-| SessionEvent（事件条目） | `packages/core/session/src/types.ts:404` | 教学版只保留 session_id/seq/type/payload 四字段 |
-| Sessions（ctx.sessions） | `SessionStore` `packages/core/session/src/index.ts:792` | 省略 prepare/commitPrepared 两段式创建与 enter/announce 登记，直接创建 |
-| SystemPromptService | `packages/core/system-prompt/src/index.ts:338`；`section` :381-390；`assemble` :467；`renderPrompt` :212-217 | 真实版有 section/variable/tool/context 四种注册，教学版只保留 section；省略 `{{variable}}` 插值 |
-| PromptSection / PromptAssembly | `packages/core/system-prompt/src/index.ts:53`（PromptSection）/ `:115`（PromptAssembly） | 教学版快照只含 sections（真实版还含 variables/tools/contexts） |
-| AgentLoop | `packages/core/agent-loop/src/index.ts:296`；static inject :296-297；create :589；publish :556-570 | create + publish 两段合一；教学服务名 `agent_loop`（教学决策 G2） |
-| ReactLoopAgent | `packages/core/agent-loop/src/agent.ts:64`；send :113-118；followup :121；wakeDriver :172；kick :210-223；turn :246-330；preStep :225-243；step :332-401 | phase 简化为 idle/running 两相；无工具、一 turn 一 step；step 固定返回 completed |
-| Inbox | `packages/core/agent-loop/src/inbox.ts:25` | 只实现 next_turn；省略 next_step（steer/inject，agent.ts:126/:130） |
-| turn-stopping / pre-step 派发 | serial('agent/turn-stopping') agent.ts:296；waterfall('agent/pre-step') agent.ts:225-243 | 派发点原样保留，监听器侧由 main.py 演示 |
-| LlmStub（教学桩，源码无此类） | `LlmRuntime.stream` `packages/llm/llm/src/index.ts:913` → streamWithRegistration :917（派发 waterfall('llm/stream')）；`StreamChunk` `types.ts:291` | 桩直接 yield chunks，不经 waterfall 拦截 |
-| create_assistant_message | `createAssistantMessage` `packages/llm/llm/src/message.ts:206-217` | 接收已拼好的文本而非 ContentBlock[]；省略 BlockAssembler 归一化与 usage 计算；溯源字段 source_event_seqs |
+| Session（append-only 事件日志） | `packages/core/session/src/index.ts:525`；`append()` :806-837；commit 与广播 :892-912 | 省略 JSON 校验（`snapshotJsonValue`）、`time`、surface/surfaceOp；保留 seq == len(log) 与事件不可变（frozen dataclass 对应 deepFreeze） |
+| SessionEvent（事件条目） | `packages/core/session/src/types.ts:501-524` | 真实字段 type/seq/time/data；教学版用 session_id/seq/type/payload |
+| Sessions（ctx.sessions） | `SessionStore` `packages/core/session/src/index.ts:1064`；create :1126；prepare :1158；enter :1231；announce :1287 | 省略 prepare → enter → announce 三段式创建与 `session/created` 派发，直接创建 |
+| SystemPromptService | `packages/core/system-prompt/src/index.ts:435`；`section` :484-493；`assemble` :620；`renderPrompt` :296-301；waterfall :683 | 真实版有 section/context/tools/variable 四种注册，教学版只保留 section；省略 `{{variable}}` 插值 |
+| PromptSection / PromptAssembly | `packages/core/system-prompt/src/index.ts:53`（PromptSection）/ `:132`（PromptAssembly） | 教学版快照只含 sections（真实版还含 contexts/variables/tools） |
+| AgentLoop | `packages/core/agent-loop/src/index.ts:290`；static inject :292；create :667；initializeAgent :464；发布顺序 :626-637 | create 与发布两段合一；教学服务名 `agent_loop`（教学决策 G2） |
+| ReactLoopAgent | `packages/core/agent-loop/src/agent.ts:112`；send :170-177；followup :179-181；steer :183；inject :187；wakeDriver :230-251；kick :268-281；turn :327-433；preStep :283-317；step :435-610 | phase 由三态判别联合简化为 idle/running 两相；无工具、一 turn 一 step；step 固定返回 completed |
+| Inbox | `ReactLoopInbox` `packages/core/agent-loop/src/inbox.ts:73`；`claim` :108；`splice` :166；`agent/inbox/spliced` :223 | 基线时是 `core/agent` 包的 `Inbox`，HEAD 迁入 agent-loop 并改名；教学版只实现 next-turn 一条队列，省掉 next-step 与「入队即落事件」的重建能力 |
+| turn-stopping / pre-step 派发 | `serial('agent/turn-stopping')` `packages/core/agent-loop/src/agent.ts:396`；`waterfall('agent/pre-step')` `packages/core/agent-loop/src/agent.ts:296-306` | 派发点原样保留，监听器侧由 main.py 演示 |
+| LlmStub（教学桩，源码无此类） | `LlmRuntime.stream` `packages/llm/llm/src/index.ts:1170` → `streamWithRegistration` `packages/llm/llm/src/index.ts:1174`（派发 waterfall('llm/stream')）；`StreamChunk` `packages/llm/llm/src/types.ts:496-508` | 桩直接 yield chunks，不经 waterfall 拦截；finish 字段简化 |
+| create_assistant_message | `createAssistantMessage` `packages/llm/llm/src/message.ts:260-271` | 接收已拼好的文本而非 ContentBlock[]；省略 BlockAssembler 归一化与 usage 计算；溯源字段 source_event_seqs |
 
 ## 8. 小结与预告
 
@@ -839,16 +861,18 @@ python3 ch02/code/main.py
 
 | 机制 | 一句话要点 | 源码 |
 |------|-----------|------|
-| Session | append-only：seq == len(log)，事件不可变 | packages/core/session/src/index.ts:425 |
-| SystemPromptService | section 注册即效应，assemble 按 order 升序组装 | packages/core/system-prompt/src/index.ts:338 |
-| AgentLoop | 被容器装配出来的服务：inject 满足才加载，create() 建 Session + Agent | packages/core/agent-loop/src/index.ts:296 |
-| kick → turn → step | 一条消息进，一条回复出 | agent.ts:210/:246/:332 |
+| Session | append-only：seq == len(log)，事件不可变 | `packages/core/session/src/index.ts:525` |
+| SystemPromptService | section 注册即效应，assemble 按 order 升序组装 | `packages/core/system-prompt/src/index.ts:435` |
+| AgentLoop | 被容器装配出来的服务：inject 满足才加载，create() 建 Session + Agent | `packages/core/agent-loop/src/index.ts:290` |
+| kick → turn → step | 一条消息进，一条回复出 | `packages/core/agent-loop/src/agent.ts:268` / `packages/core/agent-loop/src/agent.ts:327` / `packages/core/agent-loop/src/agent.ts:435` |
 
-本章用 445 行标准库 Python（agent_loop.py 364 + main.py 81，无第三方依赖、无异步）让 agent-loop 跑了起来，加上复用的第 1 章 cordis.py 284 行，两章合计 729 行可运行代码。§1 的三个问题分别落地：对话状态收敛到 Session 这条 append-only 事件流（问题 ①），system prompt 由 SystemPromptService 的 section 注册 + assemble 组装、第三方插件可注入可撤回（问题 ②），循环由容器装配出的 AgentLoop → ReactLoopAgent → kick/turn/step 驱动（问题 ③）。每个机制都能在 §6 的输出里找到对应的那一行。
+本章用 460 行标准库 Python（截至本次修订：agent_loop.py 379 + main.py 81，无第三方依赖、无异步）让 agent-loop 跑了起来，加上复用的第 1 章 cordis.py 252 行，两章合计 712 行可运行代码。§1 的三个问题分别落地：对话状态收敛到 Session 这条 append-only 事件流（问题 ①），system prompt 由 SystemPromptService 的 section 注册 + assemble 组装、第三方插件可注入可撤回（问题 ②），循环由容器装配出的 AgentLoop → ReactLoopAgent → kick/turn/step 驱动（问题 ③）。每个机制都能在 §6 的输出里找到对应的那一行。
 
 ### 8.2 下一章预告
 
-本章的 session 日志只活在内存里，进程退出就没了。下一章《session 事件流与持久化投影》接住这条 append-only 日志：事件如何经 seam（接缝：可被替换行为的注入点）落盘（断电不丢、可冷读），落盘后又如何被 projection 折算成可查询的视图。多步循环与 tool-call（step 不再固定返回 completed）留给第 4 章。
+本章的 session 日志只活在内存里，进程退出就没了。下一章《session 事件流、handle 持久化与格式迁移》接住这条 append-only 日志：事件如何经 seam（接缝：可被替换行为的注入点）送进 `SessionHandle` 的批量窗，`flush` 如何成为耐久屏障，撕裂尾与中断 turn 如何在冷读时被清理，格式版本链又如何让旧日志仍可读。多步循环与 tool-call（step 不再固定返回 `"completed"`）留给第 4 章。
+
+如果想看真实系统里「把本章这些服务装成一个能跑的最小组合」长什么样，上游的参考实现是 `packages/bundle/sdk-minimal`：一份不带 `dsh-base` 的完整 Cordis 树，核心是 SDK 启动入口与 JSON-RPC 服务、一个 DeepSeek 适配器、持久 shell 与 JSONL 会话持久化，patch 全表还有文件系统、附件、压缩等 37 项（`packages/bundle/sdk-minimal/cordis.patch.yml`）。基线时这个位置用的是 `packages/examples/agent-spine-demo`，那份示例在 HEAD 已删除。
 
 ## 9. 附录：关键概念速查表
 
@@ -871,16 +895,16 @@ python3 ch02/code/main.py
 | 概念 | 一句话定义 |
 |------|-----------|
 | Session | append-only 事件日志：seq == len(log)，事件不可变，对话状态的唯一事实来源 |
-| SessionEvent | 事件条目：session_id / seq / type / payload，frozen 冻住不可改 |
+| SessionEvent | 事件条目：session_id / seq / type / payload（真实为 type/seq/time/data），frozen 冻住不可改 |
 | Sessions | 会话注册表服务 ctx.sessions：create() 分配 session-NNNN 并登记 |
 | PromptSection / PromptAssembly | 提示词片段（name/order/text）/ 一次组装定型的快照 |
 | SystemPromptService | 系统提示词的注册与组装中心：section() 注册片段，assemble() 按 order 升序 |
 | render_prompt | 快照渲染成文本：过滤空片段、`\n\n` 拼接 |
 | AgentLoop | 被容器装配出来的服务：inject 满足才加载，create() 建 Session + Agent 并广播 |
 | ReactLoopAgent | 反应式循环驱动器：send / wake_driver / kick，自带 Inbox |
-| Inbox | 待处理消息队列：enqueue 入队、claim() 在 step 边界一次性取走、has_pending 判剩余 |
+| Inbox | 待处理消息队列：enqueue 入队、claim() 在 step 边界一次性取走整批、has_pending 判剩余；真实类 `ReactLoopInbox` 在独立文件里，继承自 `core/agent` 的 `Inbox` |
 | kick | `while(turn())`：最外层驱动循环，turn 说继续就继续 |
 | turn | 一轮对话：turn/start → step/start → user/message → step → step/end → turn-stopping → turn/end；返回是否续跑 |
 | pre_step | step 前奏：组装 prompt → 取走消息 → waterfall('agent/pre-step') 放行拦截 |
-| step | 一次模型调用：渲染 prompt → 流式收 chunk 逐条 append → 拼 assistant 消息 |
+| step | 一次模型调用：渲染 prompt → 流式收 chunk 逐条 append → 拼 assistant 消息（真实流式 chunk 只在内存累积，结束时落一条 assistant/message 或 assistant/attempt） |
 | LlmStub | 流式模型桩：按 LlmRuntime.stream 调用约定 yield chunks（教学桩，源码无此类） |
