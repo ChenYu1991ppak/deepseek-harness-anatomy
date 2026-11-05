@@ -1,0 +1,474 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DeepSeek Harness（dsh）总览：agent = model + harness",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1160,
+      880
+    ],
+    "output": "dsh-overview_zh.html"
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "CLI 启动器（apps/cli）",
+      "sublabel": "dsh 命令入口",
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "web",
+      "type": "backend",
+      "label": "Web UI（apps/web）",
+      "sublabel": "浏览器侧宿主",
+      "pos": [
+        320,
+        60
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "sdk",
+      "type": "backend",
+      "label": "Python SDK",
+      "sublabel": "子进程 + JSON-RPC",
+      "pos": [
+        600,
+        60
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "acp",
+      "type": "backend",
+      "label": "ACP 编辑器协议",
+      "sublabel": "独立插件，不经网关",
+      "pos": [
+        880,
+        60
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "boot",
+      "type": "backend",
+      "label": "boot / profile",
+      "sublabel": "一个启动器，四个 shipped profile",
+      "pos": [
+        180,
+        190
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "bundle",
+      "type": "backend",
+      "label": "bundle 三层 patch",
+      "sublabel": "base / headless / web-app",
+      "pos": [
+        460,
+        190
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "preset",
+      "type": "backend",
+      "label": "preset revision 绑定",
+      "sublabel": "Agent 锁定创建时的代",
+      "pos": [
+        740,
+        190
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "session",
+      "type": "database",
+      "label": "session 事件日志",
+      "sublabel": "handle 持久化 · 格式链 v0→v4",
+      "pos": [
+        40,
+        320
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "loop",
+      "type": "backend",
+      "label": "agent-loop",
+      "sublabel": "kick / turn / step",
+      "pos": [
+        320,
+        320
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "tools",
+      "type": "backend",
+      "label": "tools 注册表与执行器",
+      "sublabel": "native / PTC 双执行器",
+      "pos": [
+        600,
+        320
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "prompt",
+      "type": "backend",
+      "label": "system-prompt",
+      "sublabel": "分层装配 + 运行时上下文",
+      "pos": [
+        880,
+        320
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "scope",
+      "type": "backend",
+      "label": "scope",
+      "sublabel": "分作用域注册 · 链上交集",
+      "pos": [
+        880,
+        430
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "llm 适配器",
+      "sublabel": "Messages 协议 · 流式",
+      "pos": [
+        40,
+        560
+      ],
+      "size": [
+        190,
+        56
+      ]
+    },
+    {
+      "id": "execworld",
+      "type": "backend",
+      "label": "执行世界",
+      "sublabel": "subprocess/shell/fs/sandbox/SSH",
+      "pos": [
+        320,
+        560
+      ],
+      "size": [
+        220,
+        56
+      ]
+    },
+    {
+      "id": "subagent",
+      "type": "backend",
+      "label": "subagent 委派",
+      "sublabel": "一种传输 = 一个小包",
+      "pos": [
+        600,
+        560
+      ],
+      "size": [
+        190,
+        56
+      ]
+    },
+    {
+      "id": "skill",
+      "type": "backend",
+      "label": "skill 加载",
+      "sublabel": "rank 阶梯 · 按需加载",
+      "pos": [
+        880,
+        560
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "compaction",
+      "type": "backend",
+      "label": "compaction",
+      "sublabel": "surface · token 压力",
+      "pos": [
+        40,
+        470
+      ],
+      "size": [
+        190,
+        56
+      ]
+    },
+    {
+      "id": "otel",
+      "type": "backend",
+      "label": "遥测通道",
+      "sublabel": "空定义 seam · 两条队列",
+      "pos": [
+        320,
+        670
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "backend",
+      "label": "typert 网关",
+      "sublabel": "跨进程类型化 RPC",
+      "pos": [
+        600,
+        670
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "cordis",
+      "type": "backend",
+      "label": "Cordis 内核 · ctx / Service / effect / 事件派发",
+      "sublabel": "一切皆插件，没有特权内核",
+      "pos": [
+        460,
+        780
+      ],
+      "size": [
+        480,
+        56
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "入口层",
+      "wraps": [
+        "cli",
+        "web",
+        "sdk",
+        "acp"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "组合层 · 按配置拼装插件树",
+      "wraps": [
+        "boot",
+        "bundle",
+        "preset"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "核心骨架",
+      "wraps": [
+        "session",
+        "loop",
+        "tools",
+        "prompt",
+        "scope"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "能力 seam 层 · 换 provider 即换行为",
+      "wraps": [
+        "llm",
+        "execworld",
+        "subagent",
+        "skill",
+        "compaction"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "横切面 · 观测与跨进程",
+      "wraps": [
+        "otel",
+        "gateway"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Cordis 内核",
+      "wraps": [
+        "cordis"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "e1",
+      "from": "cli",
+      "to": "boot",
+      "label": "选 profile"
+    },
+    {
+      "id": "e2",
+      "from": "web",
+      "to": "boot"
+    },
+    {
+      "id": "e3",
+      "from": "sdk",
+      "to": "gateway",
+      "label": "JSON-RPC 子进程"
+    },
+    {
+      "id": "e4",
+      "from": "acp",
+      "to": "loop",
+      "variant": "dashed",
+      "label": "直连 Session"
+    },
+    {
+      "id": "e5",
+      "from": "boot",
+      "to": "bundle",
+      "label": "三层 patch"
+    },
+    {
+      "id": "e6",
+      "from": "bundle",
+      "to": "preset",
+      "label": "随附 preset"
+    },
+    {
+      "id": "e7",
+      "from": "preset",
+      "to": "scope",
+      "label": "绑定 revision"
+    },
+    {
+      "id": "e8",
+      "from": "boot",
+      "to": "loop",
+      "label": "装配并启动"
+    },
+    {
+      "id": "e9",
+      "from": "loop",
+      "to": "session",
+      "label": "append / read"
+    },
+    {
+      "id": "e10",
+      "from": "loop",
+      "to": "tools",
+      "label": "tools/execute"
+    },
+    {
+      "id": "e11",
+      "from": "loop",
+      "to": "prompt",
+      "label": "每轮装配"
+    },
+    {
+      "id": "e12",
+      "from": "loop",
+      "to": "llm",
+      "label": "模型调用"
+    },
+    {
+      "id": "e13",
+      "from": "tools",
+      "to": "execworld",
+      "label": "命令与文件执行"
+    },
+    {
+      "id": "e14",
+      "from": "session",
+      "to": "compaction",
+      "label": "surface + token 压力"
+    },
+    {
+      "id": "e15",
+      "from": "scope",
+      "to": "skill",
+      "variant": "dashed",
+      "label": "分层注册"
+    },
+    {
+      "id": "e16",
+      "from": "subagent",
+      "to": "loop",
+      "variant": "dashed",
+      "label": "复用 AgentLoop"
+    },
+    {
+      "id": "e17",
+      "from": "session",
+      "to": "otel",
+      "variant": "dashed",
+      "label": "捕获侧"
+    },
+    {
+      "id": "e18",
+      "from": "gateway",
+      "to": "tools",
+      "variant": "dashed",
+      "label": "远端调用进程内服务"
+    },
+    {
+      "id": "e19",
+      "from": "loop",
+      "to": "cordis",
+      "label": "插件即 ctx 上的 fiber"
+    }
+  ]
+}

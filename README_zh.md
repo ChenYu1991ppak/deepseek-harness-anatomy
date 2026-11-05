@@ -62,15 +62,7 @@ python3 ch02/code/main.py
 
 最宏观的分层视图：
 
-```mermaid
-flowchart TB
-  ENTRY["入口层 · CLI / Web UI / SDK"]
-  COMPOSE["组合层 · bundle / preset / boot（按配置拼装插件树）"]
-  CORE["核心骨架 · session 事件日志 / agent-loop / tools 注册表与执行器 / system-prompt / scope"]
-  SEAMS["能力 seam · llm / subprocess / shell / fs / sandbox / subagent / skill / compaction …（换 provider 即换行为）"]
-  KERNEL["Cordis 内核 · ctx / inject / effect / emit（一切皆插件，没有特权内核）"]
-  ENTRY --> COMPOSE --> CORE --> SEAMS --> KERNEL
-```
+![dsh 总览：六层结构与横切面](assets/dsh-overview_zh.png)
 
 四条核心设计思想贯穿全教程：**一切皆插件，没有特权内核**；**agent = model + harness**；**注册即效应**（安装可逆回滚）；**seam 三角色**（换一个 provider 即换整体行为）。
 

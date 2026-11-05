@@ -62,15 +62,7 @@ In one sentence: **agent = model + harness**. The model only produces "the next 
 
 The most macroscopic layered view:
 
-```mermaid
-flowchart TB
-  ENTRY["Entry layer · CLI / Web UI / SDK"]
-  COMPOSE["Composition layer · bundle / preset / boot (assemble the plugin tree per configuration)"]
-  CORE["Core skeleton · session event log / agent-loop / tools registry & executor / system-prompt / scope"]
-  SEAMS["Capability seams · llm / subprocess / shell / fs / sandbox / subagent / skill / compaction … (swap the provider, swap the behavior)"]
-  KERNEL["Cordis kernel · ctx / inject / effect / emit (everything is a plugin, no privileged kernel)"]
-  ENTRY --> COMPOSE --> CORE --> SEAMS --> KERNEL
-```
+![dsh overview: six layers and the cross-cutting plane](assets/dsh-overview_en.png)
 
 Four core design philosophies run through the entire tutorial: **everything is a plugin, no privileged kernel**; **agent = model + harness**; **registration is effect** (installation is reversible and rollback-able); **the seam triple-role** (swap one provider, swap the entire behavior).
 
